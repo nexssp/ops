@@ -1,0 +1,26 @@
+import type { ZodType } from 'zod';
+
+type FormActionOptions<Req, Res> = { schema: ZodType<Req>; submit: (req: Req) => Promise<Res> };
+
+export function createFormAction<Req extends Record<string, unknown>, Res>(opts: FormActionOptions<Req, Res>) {
+  let form = $state<Partial<Req>>({});
+  let errors = $state<Record<string, string>>({});
+  let loading = $state(false);
+  let lastResponse = $state<Res | null>(null);
+
+  async function handleSubmit() {
+    errors = {};
+    const parsed = opts.schema.safeParse(form);
+    if (!parsed.success) {
+      const fieldErrors = parsed.error.flatten().fieldErrors as Record<string, string[] | undefined>;
+      for (const [key, messages] of Object.entries(fieldErrors)) if (messages?.[0]) errors[key] = messages[0];
+      return false;
+    }
+    loading = true;
+    try { lastResponse = await opts.submit(parsed.data); return true; }
+    catch (cause) { errors._form = cause instanceof Error ? cause.message : 'Request failed'; return false; }
+    finally { loading = false; }
+  }
+
+  return { get form() { return form; }, set form(value) { form = value; }, get errors() { return errors; }, get loading() { return loading; }, get lastResponse() { return lastResponse; }, handleSubmit };
+}

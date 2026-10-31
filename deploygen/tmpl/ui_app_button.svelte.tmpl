@@ -1,0 +1,7 @@
+<script lang="ts">
+  import type { Snippet } from 'svelte';
+  let { type = 'button', disabled = false, loading = false, class: className = '', children, onclick }: { type?: 'button' | 'submit' | 'reset'; disabled?: boolean; loading?: boolean; class?: string; children?: Snippet; onclick?: (event: MouseEvent) => void } = $props();
+</script>
+<button {type} {onclick} disabled={disabled || loading} class={`inline-flex items-center justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60 ${className}`}>
+  {#if loading}Loading…{:else}{@render children?.()}{/if}
+</button>

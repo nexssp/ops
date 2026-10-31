@@ -1,0 +1,114 @@
+<!-- Path: nexss/ops/deploygen/tmpl/ui_login.svelte.tmpl -->
+<script lang="ts">
+  import { auth } from '$lib/stores/auth.svelte';
+  import { api } from '$lib/api';
+
+  let mode = $state<'login' | 'register'>('login');
+  let email = $state('');
+  let password = $state('');
+  let loading = $state(false);
+  let error = $state<string | null>(null);
+  let successMsg = $state<string | null>(null);
+
+  async function handleSubmit(e: Event) {
+    e.preventDefault();
+    loading = true;
+    error = null;
+    successMsg = null;
+
+    try {
+      if (mode === 'login') {
+        const res = await (api as any).authLogin({ email, password });
+        if (res.token?.access_token) {
+          auth.setSession({
+            access_token: res.token.access_token,
+            refresh_token: res.token.refresh_token
+          }, res.user);
+          window.location.href = '/';
+        }
+      } else {
+        const res = await (api as any).authRegister({ email, password });
+        successMsg = res.message || 'Registration successful. Please log in.';
+        mode = 'login';
+      }
+    } catch (err: any) {
+      error = err.data?.message || err.message || 'Operation failed';
+    } finally {
+      loading = false;
+    }
+  }
+</script>
+
+<div class="flex min-h-[75vh] items-center justify-center">
+  <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl backdrop-blur-md">
+    <!-- Header Tabs -->
+    <div class="mb-6 flex border-b border-slate-800 pb-3 justify-between items-center">
+      <h1 class="text-lg font-bold text-slate-100 font-mono">
+        {mode === 'login' ? 'Sign In' : 'Create Account'}
+      </h1>
+      <div class="flex gap-1 rounded-lg bg-slate-950 p-1 text-xs font-mono">
+        <button
+          type="button"
+          onclick={() => { mode = 'login'; error = null; }}
+          class="rounded px-2.5 py-1 transition-colors {mode === 'login' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'}"
+        >
+          Login
+        </button>
+        <button
+          type="button"
+          onclick={() => { mode = 'register'; error = null; }}
+          class="rounded px-2.5 py-1 transition-colors {mode === 'register' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'}"
+        >
+          Register
+        </button>
+      </div>
+    </div>
+
+    {#if error}
+      <div class="mb-4 rounded-lg border border-rose-800/80 bg-rose-950/40 p-3 text-xs text-rose-300 font-mono">
+        ⚠️ {error}
+      </div>
+    {/if}
+
+    {#if successMsg}
+      <div class="mb-4 rounded-lg border border-emerald-800/80 bg-emerald-950/40 p-3 text-xs text-emerald-300 font-mono">
+        ✅ {successMsg}
+      </div>
+    {/if}
+
+    <!-- Form -->
+    <form onsubmit={handleSubmit} class="flex flex-col gap-4 font-sans text-sm">
+      <div class="flex flex-col gap-1.5">
+        <label for="email" class="text-xs font-medium text-slate-300">Email Address</label>
+        <input
+          id="email"
+          type="email"
+          required
+          bind:value={email}
+          placeholder="admin@example.com"
+          class="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none font-mono text-xs"
+        />
+      </div>
+
+      <div class="flex flex-col gap-1.5">
+        <label for="password" class="text-xs font-medium text-slate-300">Password</label>
+        <input
+          id="password"
+          type="password"
+          required
+          bind:value={password}
+          placeholder="••••••••"
+          class="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-slate-100 placeholder-slate-600 focus:border-indigo-500 focus:outline-none font-mono text-xs"
+        />
+      </div>
+
+      <button
+        type="submit"
+        disabled={loading}
+        class="mt-2 rounded-lg bg-indigo-600 py-2.5 text-xs font-bold text-white uppercase tracking-wider transition-colors hover:bg-indigo-500 disabled:opacity-50 cursor-pointer"
+      >
+        {loading ? 'Processing...' : (mode === 'login' ? 'Sign In' : 'Register Account')}
+      </button>
+    </form>
+  </div>
+</div>

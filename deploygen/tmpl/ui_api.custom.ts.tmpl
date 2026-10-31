@@ -1,0 +1,14 @@
+/**
+ * Scaffolded by Nexss.
+ * This is your Custom API Layer.
+ * Place custom logic and overrides here (e.g., FormData uploads, Blob downloads).
+ */
+import { getAuthHeader } from './client';
+
+export const customApi = {
+    initAuth: () => {
+        const access = localStorage.getItem('access_token');
+        const refresh = localStorage.getItem('refresh_token');
+        return { hasAccess: !!access, hasRefresh: !!refresh };
+    }
+};

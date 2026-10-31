@@ -1,0 +1,37 @@
+<!-- Path: nexss/ops/deploygen/tmpl/ui_confirm_modal.svelte.tmpl -->
+<script lang="ts">
+  let {
+    title = 'Potwierdzenie',
+    message = 'Czy na pewno chcesz usunąć ten element?',
+    confirmLabel = 'Usuń',
+    cancelLabel = 'Anuluj',
+    onConfirm,
+    onCancel
+  } = $props();
+</script>
+
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4" role="dialog" aria-modal="true">
+  <div class="w-full max-w-sm bg-slate-900 border border-slate-800 p-5 rounded-xl space-y-4 shadow-2xl font-sans">
+    <div>
+      <h3 class="text-base font-semibold text-slate-100">{title}</h3>
+      <p class="text-sm text-slate-400 mt-1 leading-relaxed">{message}</p>
+    </div>
+
+    <div class="flex justify-end gap-2 pt-2 border-t border-slate-800/80 font-medium text-sm">
+      <button
+        type="button"
+        onclick={onCancel}
+        class="px-3.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 cursor-pointer transition-colors"
+      >
+        {cancelLabel}
+      </button>
+      <button
+        type="button"
+        onclick={onConfirm}
+        class="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-medium cursor-pointer transition-colors"
+      >
+        {confirmLabel}
+      </button>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,36 @@
+<!-- Path: nexss/ops/deploygen/tmpl/ui_app_pagination.svelte.tmpl -->
+<script lang="ts">
+  let {
+    page = 1,
+    total = 0,
+    limit = 25,
+    onPageChange
+  } = $props();
+
+  let totalPages = $derived(Math.ceil(total / limit) || 1);
+  let canPrev = $derived(page > 1);
+  let canNext = $derived(page < totalPages);
+</script>
+
+<div class="flex items-center justify-between gap-2 mt-4 text-xs font-mono text-slate-400">
+  <span>Strona <strong class="text-slate-200">{page}</strong> z <strong class="text-slate-200">{totalPages}</strong></span>
+
+  <div class="flex items-center gap-1.5">
+    <button
+      type="button"
+      disabled={!canPrev}
+      onclick={() => onPageChange?.(page - 1)}
+      class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+    >
+      ← Poprzednia
+    </button>
+    <button
+      type="button"
+      disabled={!canNext}
+      onclick={() => onPageChange?.(page + 1)}
+      class="px-2.5 py-1 rounded bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+    >
+      Następna →
+    </button>
+  </div>
+</div>
