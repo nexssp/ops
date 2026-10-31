@@ -1,0 +1,25 @@
+import type { ZodType } from 'zod';
+
+export interface CrudOptions<T, Req> {
+  fetch: (params: Req & { page?: number; limit?: number; search?: string; sort?: string }) => Promise<{ data?: T[] | null; total?: number | null } | T[]>;
+  create: (data: T) => Promise<T>;
+  update: (id: string | number, data: T) => Promise<T>;
+  remove: (id: string | number) => Promise<unknown>;
+  pageLimit?: number;
+  defaultSort?: string;
+}
+
+export function useCrud<T extends Record<string, unknown>, Req = Record<string, never>>(opts: CrudOptions<T, Req>) {
+  let records = $state<T[]>([]); let total = $state(0); let page = $state(1); let loading = $state(false); let error = $state<string | null>(null); let sort = $state(opts.defaultSort ?? '-id');
+  async function load(extra: Partial<Req> = {}) {
+    loading = true; error = null;
+    try {
+      const result = await opts.fetch({ page, limit: opts.pageLimit ?? 25, sort, ...extra } as Req & { page: number; limit: number; sort: string });
+      if (Array.isArray(result)) { records = result; total = result.length; } else { records = result.data ?? []; total = result.total ?? records.length; }
+    } catch (cause) { error = cause instanceof Error ? cause.message : 'Request failed'; }
+    finally { loading = false; }
+  }
+  async function save(item: T, schema?: ZodType<T>) { const parsed = schema?.safeParse(item); if (parsed && !parsed.success) return false; const value = parsed?.success ? parsed.data : item; const id = value.id ?? value.ID; if (id) await opts.update(id as string | number, value); else await opts.create(value); await load(); return true; }
+  async function remove(id: string | number) { await opts.remove(id); await load(); }
+  return { get records() { return records; }, get total() { return total; }, get page() { return page; }, set page(value) { page = value; }, get loading() { return loading; }, get error() { return error; }, get sort() { return sort; }, set sort(value) { sort = value; }, pageLimit: opts.pageLimit ?? 25, load, save, remove };
+}

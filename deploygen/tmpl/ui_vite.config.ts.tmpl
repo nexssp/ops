@@ -1,0 +1,18 @@
+import { sveltekit } from '@sveltejs/kit/vite';
+import tailwindcss from '@tailwindcss/vite';
+import { defineConfig, loadEnv } from 'vite';
+
+export default defineConfig(({ mode }) => {
+  const allowedHosts = (loadEnv(mode, '.', 'NEXSS_').NEXSS_DEV_ALLOWED_HOSTS ?? '').split(',').map((host) => host.trim()).filter(Boolean);
+  return {
+  plugins: [tailwindcss(), sveltekit()],
+  server: {
+    port: 5173,
+    allowedHosts,
+    proxy: {
+      '^/(v1|api|auth|internal)(/.*)?$': { target: 'http://127.0.0.1:<% .HTTPPort %>', changeOrigin: true, secure: false },
+      '^/(system|monitor|health|deploy|dashboards|debug|obs|healthz|_app|_graphiql)(/.*)?$': { target: 'http://127.0.0.1:<% .ObsPort %>', changeOrigin: true, secure: false }
+    }
+  }
+  };
+});

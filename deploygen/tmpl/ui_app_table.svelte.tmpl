@@ -1,0 +1,57 @@
+<!-- Path: nexss/ops/deploygen/tmpl/ui_app_table.svelte.tmpl -->
+<script lang="ts">
+  let {
+    columns = [] as Array<{ key: string; label: string; sortable?: boolean }>,
+    rows = [] as any[],
+    loading = false,
+    sortCol = '',
+    sortDir = 'asc',
+    empty = 'Brak danych',
+    onSort,
+    children
+  } = $props();
+</script>
+
+<div class="w-full overflow-x-auto border border-slate-800 rounded-xl bg-slate-900/50">
+  <table class="w-full text-left text-sm">
+    <thead class="bg-slate-800/60 text-slate-400 border-b border-slate-800 font-mono text-xs uppercase tracking-wider">
+      <tr>
+        {#each columns as col}
+          <th class="p-3 font-medium">
+            {#if col.sortable}
+              <button
+                type="button"
+                onclick={() => onSort?.(col.key)}
+                class="hover:text-slate-200 flex items-center gap-1 font-medium cursor-pointer focus:outline-none"
+              >
+                <span>{col.label}</span>
+                {#if sortCol === col.key}
+                  <span class="text-indigo-400 font-bold">{sortDir === 'desc' ? '↓' : '↑'}</span>
+                {/if}
+              </button>
+            {:else}
+              {col.label}
+            {/if}
+          </th>
+        {/each}
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-800 text-slate-300">
+      {#if loading}
+        <tr>
+          <td colspan={columns.length || 1} class="p-8 text-center text-slate-500 italic">
+            Ładowanie danych...
+          </td>
+        </tr>
+      {:else if rows.length === 0}
+        <tr>
+          <td colspan={columns.length || 1} class="p-8 text-center text-slate-500 italic">
+            {empty}
+          </td>
+        </tr>
+      {:else}
+        {@render children?.(rows)}
+      {/if}
+    </tbody>
+  </table>
+</div>

@@ -1,0 +1,26 @@
+/**
+ * Scaffolded by Nexss.
+ * Merges UI-specific layout rules with the auto-generated backend schema.
+ * This preserves Single Source of Truth (SSoT) for keys and sortability,
+ * while giving the Frontend full control over alignment, widths, and ordering.
+ *
+ * You can safely edit this file – it will NOT be overwritten.
+ */
+
+export function extendColumns(generated: readonly any[], layout: any[]) {
+    return layout.map((col) => {
+        if (!col.key) return col;
+
+        const base = generated.find((g) => g.key === col.key);
+        if (!base) {
+            console.warn(`[Table] Column key '${col.key}' not found in generated schema.`);
+            return col;
+        }
+
+        return {
+            sortKey: base.sortable ? base.key : undefined,
+            ...base,
+            ...col
+        };
+    });
+}

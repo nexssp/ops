@@ -1,0 +1,29 @@
+<script lang="ts">
+  import { endpointMeta } from '$lib/api';
+  let actions = $derived(Object.values(endpointMeta ?? {}));
+</script>
+
+<div class="space-y-6">
+  <section class="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+    <p class="font-mono text-xs font-bold uppercase tracking-widest text-indigo-300">Nexss SvelteKit</p>
+    <h1 class="mt-2 text-2xl font-bold tracking-tight">System Control Room</h1>
+    <p class="mt-1 text-sm text-slate-400">Static SPA scaffold with a typed client generated from registered Go actions.</p>
+  </section>
+  <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 font-mono">
+      <span class="text-xs uppercase text-slate-500">Discovered actions</span>
+      <p class="mt-2 text-3xl font-bold text-indigo-400">{actions.length}</p>
+      <p class="mt-2 text-[11px] text-slate-500">Generated SDK endpoint metadata</p>
+    </article>
+    <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 font-mono">
+      <span class="text-xs uppercase text-slate-500">Business API</span>
+      <p class="mt-2 text-3xl font-bold text-emerald-400"><% .HTTPPort %></p>
+      <p class="mt-2 text-[11px] text-slate-500">Development proxy target</p>
+    </article>
+    <article class="rounded-xl border border-slate-800 bg-slate-900/60 p-5 font-mono">
+      <span class="text-xs uppercase text-slate-500">Operations</span>
+      <p class="mt-2 text-3xl font-bold text-amber-400"><% .ObsPort %></p>
+      <p class="mt-2 text-[11px] text-slate-500">Private monitoring endpoint</p>
+    </article>
+  </section>
+</div>

@@ -1,0 +1,93 @@
+# Nexss Ecosystem
+# Copyright 2018-Present Marcin Polak and Contributors
+# SPDX-License-Identifier: Apache-2.0
+version: '3'
+vars:
+  PKG: '{{.CLI_ARGS | default "./..."}}'
+  GOTEST: '{{.GOTEST | default "go test"}}'
+  BASE:
+    sh: git merge-base HEAD origin/main 2>/dev/null || echo HEAD
+tasks:
+  default:
+    cmds: [task --list --sort none]
+    silent: true
+  build:
+    desc: 'go build [./...]'
+    cmds: ['go build {{.PKG}}']
+  build:bin:
+    desc: Build the user-facing binaries into bin/
+    cmds:
+      - mkdir -p bin
+      - go build -trimpath -o bin/nexssp ./cmd/nexssp
+      - go build -trimpath -o bin/nexss ./cmd/nexss
+      - go build -trimpath -o bin/local-nats ./cmd/local-nats
+  install:
+    desc: Install the nexssp and nexss commands
+    cmds:
+      - go install ./cmd/nexssp
+      - go install ./cmd/nexss
+  tidy:
+    desc: go mod tidy
+    cmds: [go mod tidy]
+  clean:
+    desc: Remove build and coverage artifacts
+    cmds: [rm -rf bin coverage.out coverage.html]
+  test:
+    desc: '{{.GOTEST}} -short [./...]'
+    cmds: ['{{.GOTEST}} -short {{.PKG}}']
+  test:nocache:
+    desc: '{{.GOTEST}} -count=1 [./...]'
+    cmds: ['{{.GOTEST}} -count=1 {{.PKG}}']
+  test:race:
+    desc: '{{.GOTEST}} -race -short [./...]'
+    cmds: ['{{.GOTEST}} -race -short {{.PKG}}']
+  test:race:nocache:
+    desc: '{{.GOTEST}} -race -count=1 [./...]'
+    cmds: ['{{.GOTEST}} -race -count=1 {{.PKG}}']
+  test:cover:
+    desc: Run tests with coverage and print the coverage summary
+    cmds:
+      - '{{.GOTEST}} -coverprofile=coverage.out -short {{.PKG}}'
+      - go tool cover -func=coverage.out
+  bench:
+    desc: Run Go benchmarks
+    cmds: ["{{.GOTEST}} -run='^$' -bench=. -benchmem {{.PKG}}"]
+  vet:
+    desc: go vet [./...]
+    cmds: ['go vet {{.PKG}}']
+  fmt:
+    desc: Format Go code with golangci-lint formatters
+    cmds: [golangci-lint fmt]
+  fmt:check:
+    desc: Check Go formatting without changing files
+    cmds: [golangci-lint fmt --diff]
+  lint:
+    desc: golangci-lint run
+    cmds: [golangci-lint run]
+  lint:new:
+    desc: Lint changes since the merge base
+    cmds: ['golangci-lint run --new-from-rev="{{.BASE}}"']
+  lint:fix:
+    desc: Fix lint findings on changed code
+    cmds: ['golangci-lint run --fix --new-from-rev="{{.BASE}}"']
+  vuln:
+    desc: Run govulncheck against the selected packages
+    cmds: ['govulncheck -show=version {{.PKG}}']
+  pre-commit:
+    desc: '[format check, lint, test]'
+    deps: [fmt:check, lint, test]
+  pre-push:
+    desc: '[format check, lint, race tests]'
+    deps: [fmt:check, lint, test:race]
+  ci:
+    desc: '[build, format check, lint, uncached race tests]'
+    deps: [build, fmt:check, lint, test:race:nocache]
+    output: prefixed
+  tools:
+    desc: Install golangci-lint and govulncheck
+    cmds:
+      - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+      - go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+  setup:
+    desc: Install repository development tools
+    deps: [tools]
