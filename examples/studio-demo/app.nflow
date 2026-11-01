@@ -1,0 +1,14 @@
+@schema DemoFlowRequest {
+  Message string `json:"message" validate:"required"`
+  Repeat int `json:"repeat" validate:"min=1,max=5"`
+}
+
+@schema DemoFlowResponse {
+  Message string `json:"message"`
+  Repetitions int `json:"repetitions"`
+  GeneratedAt string `json:"generated_at"`
+}
+
+@pipeline demo_nflow_echo :route="POST /api/demo/nflow-echo" :request-schema=DemoFlowRequest :response-schema=DemoFlowResponse
+  { message: .message, repeat: .repeat } -> demo.echo
+@end

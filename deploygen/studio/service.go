@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/nexssp/kernel/action"
+	"github.com/nexssp/kernel/xctx"
 	"github.com/nexssp/kernel/xerr"
+	obs "github.com/nexssp/observability"
+	"github.com/nexssp/ops/analyzer"
 	nxtransport "github.com/nexssp/transport"
 	"github.com/nexssp/transport/thttp"
 )
@@ -19,9 +23,10 @@ import (
 const historyCap = 100
 
 type Service struct {
-	mu      sync.RWMutex
-	catalog []action.AnyAction
-	byName  map[string]action.AnyAction
+	mu         sync.RWMutex
+	catalog    []action.AnyAction
+	byName     map[string]action.AnyAction
+	flowRoutes []ActionDTO
 
 	histMu  sync.RWMutex
 	history []ExecutionRecord
@@ -29,10 +34,13 @@ type Service struct {
 	histLen int
 }
 
-func NewService(actions []action.AnyAction) *Service {
+func NewService(actions []action.AnyAction, reports ...*analyzer.Report) *Service {
 	s := &Service{
 		byName:  map[string]action.AnyAction{},
 		history: make([]ExecutionRecord, historyCap),
+	}
+	if len(reports) > 0 {
+		s.flowRoutes = extractFlowRoutes(reports[0])
 	}
 	for _, a := range actions {
 		if a == nil || a.Describe() == nil || a.Describe().Name == "" {
@@ -46,6 +54,7 @@ func NewService(actions []action.AnyAction) *Service {
 
 func (s *Service) Actions() []action.AnyAction {
 	return []action.AnyAction{
+		studioUIAction(s),
 		action.New("studio.api.actions", s.handleActions).
 			System().Tag("infra", "studio").
 			Route(thttp.GET("/studio/api/actions")).
@@ -69,19 +78,30 @@ func (s *Service) Actions() []action.AnyAction {
 	}
 }
 
+// Handler mounts the Studio UI and API action bindings on a standard HTTP handler.
+// It can be attached to an application mux without exposing unrelated actions.
+func (s *Service) Handler() http.Handler {
+	transport := thttp.New("")
+	transport.Mount(s.Actions())
+	return transport.Handler()
+}
+
 // ── /studio/api/actions ──────────────────────────────────────────────────────
 
 func (s *Service) handleActions(_ context.Context, _ struct{}) ([]ActionDTO, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return extractActionsMeta(s.catalog), nil
+	actions := extractActionsMeta(s.catalog)
+	actions = append(actions, s.flowRoutes...)
+	return actions, nil
 }
 
 // ── /studio/api/execute ──────────────────────────────────────────────────────
 
 type ExecuteReq struct {
-	ActionName string          `json:"action_name" validate:"required"`
-	Payload    json.RawMessage `json:"payload,omitempty"`
+	ActionName string             `json:"action_name" validate:"required"`
+	Payload    json.RawMessage    `json:"payload,omitempty"`
+	Identity   *StudioIdentityDTO `json:"identity,omitempty"`
 }
 
 func (s *Service) handleExecute(ctx context.Context, req ExecuteReq) (ExecutionRecord, error) {
@@ -106,29 +126,48 @@ func (s *Service) handleExecute(ctx context.Context, req ExecuteReq) (ExecutionR
 		_ = json.Unmarshal(req.Payload, &parsed)
 	}
 
+	if req.Identity != nil && allowIdentityOverride() {
+		ctx = withStudioIdentity(ctx, *req.Identity)
+	}
+	traceCtx, collector := obs.WithCollector(ctx)
+	traceCtx, endRoot := obs.StartSpan(traceCtx, "Action Execution", req.ActionName)
 	t0 := time.Now()
-	res, err := ex.ExecuteDecoded(ctx, func(v any) error {
+	res, err := ex.ExecuteDecoded(traceCtx, func(v any) error {
+		_, endDecode := obs.StartSpan(traceCtx, "Request Decode")
 		if len(req.Payload) == 0 || string(req.Payload) == "null" || string(req.Payload) == "{}" {
+			endDecode()
 			return nil
 		}
-		return json.Unmarshal(req.Payload, v)
+		decodeErr := json.Unmarshal(req.Payload, v)
+		endDecode(decodeErr)
+		return decodeErr
 	})
+	endRoot(err)
 	dur := time.Since(t0)
+	waterfall := collector.Spans()
+	sort.SliceStable(waterfall, func(i, j int) bool { return waterfall[i].StartOffsetUs < waterfall[j].StartOffsetUs })
 
 	rec := ExecutionRecord{
 		ID:                fmt.Sprintf("req_%d", time.Now().UnixNano()),
 		ActionName:        req.ActionName,
 		Timestamp:         time.Now().UTC(),
 		DurationMs:        dur.Milliseconds(),
+		DurationUs:        dur.Microseconds(),
 		DurationFormatted: formatDuration(dur),
+		TotalTraceUs:      dur.Microseconds(),
 		Payload:           parsed,
+		Waterfall:         waterfall,
 	}
 
 	if err != nil {
 		appErr := xerr.From(err)
 		rec.Status = nxtransport.MapToHTTPStatus(appErr.Kind)
 		rec.Success = false
-		rec.Error = appErr.Message
+		errDetail := map[string]any{"kind": string(appErr.Kind), "message": appErr.Message}
+		if appErr.Cause != nil {
+			errDetail["cause"] = appErr.Cause.Error()
+		}
+		rec.Error = errDetail
 	} else {
 		meta := target.Describe()
 		rec.Status = http.StatusOK
@@ -141,6 +180,26 @@ func (s *Service) handleExecute(ctx context.Context, req ExecuteReq) (ExecutionR
 
 	s.push(rec)
 	return rec, nil
+}
+
+func allowIdentityOverride() bool {
+	if !strings.EqualFold(os.Getenv("NEXSS_STUDIO_ALLOW_IDENTITY_OVERRIDE"), "true") {
+		return false
+	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if env == "" {
+		env = strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
+	}
+	return env == "dev" || env == "development" || env == "test"
+}
+
+func withStudioIdentity(ctx context.Context, identity StudioIdentityDTO) context.Context {
+	ctx = xctx.WithUserID(ctx, identity.UserID)
+	ctx = xctx.WithTenantID(ctx, identity.TenantID)
+	ctx = xctx.WithRoles(ctx, identity.Roles)
+	ctx = xctx.WithPermissions(ctx, identity.Permissions)
+	ctx = xctx.WithFeatures(ctx, identity.Features)
+	return ctx
 }
 
 func (s *Service) push(r ExecutionRecord) {
@@ -188,6 +247,11 @@ func (s *Service) handleFuzz(_ context.Context, req struct {
 	if !ok {
 		return nil, xerr.NotFound("action not found")
 	}
+	switch req.Scenario {
+	case "happy", "edge", "fuzz", "injection":
+	default:
+		return nil, xerr.BadRequest("scenario must be happy, edge, fuzz, or injection")
+	}
 
 	dtos := extractActionsMeta([]action.AnyAction{target})
 	if len(dtos) == 0 {
@@ -232,11 +296,16 @@ func happyValue(f FieldMeta) any {
 		if strings.Contains(k, "budget") {
 			return 1000000
 		}
+		if strings.Contains(k, "repeat") || strings.Contains(k, "count") || strings.Contains(k, "limit") {
+			return 2
+		}
 		return 10
 	case "boolean":
 		return true
 	case "array":
 		return []any{"sample"}
+	case "object":
+		return map[string]any{}
 	case "date":
 		return time.Now().UTC().Format(time.RFC3339)
 	}
@@ -247,6 +316,8 @@ func happyValue(f FieldMeta) any {
 		return fmt.Sprintf("%s_%d", strings.TrimSuffix(f.Key, "_id"), time.Now().Unix()%10000)
 	case strings.Contains(k, "prompt"), strings.Contains(k, "query"), strings.Contains(k, "goal"):
 		return "Analyze system resilience under load"
+	case strings.Contains(k, "operator"):
+		return "+"
 	}
 	return "sample_" + f.Key
 }
@@ -259,6 +330,8 @@ func edgeValue(f FieldMeta) any {
 		return false
 	case "array":
 		return []any{}
+	case "object":
+		return map[string]any{}
 	}
 	return strings.Repeat("A", 64)
 }

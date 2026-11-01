@@ -278,7 +278,10 @@ func @@FUNCTION_NAME@@(ctx context.Context, workflowPath, addr string, appBundle
 			return fmt.Errorf("preprocess backend workflow: %w", err)
 		}
 
-		requirements := require.FromMeta(meta)
+		requirements, err := require.FromMeta(meta)
+		if err != nil {
+			return fmt.Errorf("derive backend requirements: %w", err)
+		}
 		var ownershipErr error
 		requiredBundles, err := require.ResolveBundlesWith(requirements, func(bundle compiler.Bundle) {
 			if ownershipErr == nil {

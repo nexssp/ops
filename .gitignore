@@ -5,6 +5,9 @@ node_modules/
 # Flow Studio bundles its production Svelte assets into the Go CLI.
 !flowstudio/web/dist/
 !flowstudio/web/dist/**
+# Action Studio embeds its production Svelte workbench in the Go backend.
+!deploygen/studio/web/dist/
+!deploygen/studio/web/dist/**
 *.exe
 *.exe~
 *.dll
