@@ -1,6 +1,10 @@
 # Binaries & compiled artifacts
 bin/
 dist/
+node_modules/
+# Flow Studio bundles its production Svelte assets into the Go CLI.
+!flowstudio/web/dist/
+!flowstudio/web/dist/**
 *.exe
 *.exe~
 *.dll

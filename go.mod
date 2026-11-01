@@ -1,12 +1,12 @@
 module github.com/nexssp/ops
 
-go 1.26.9
+go 1.27.3
 
 require (
 	github.com/nats-io/nats-server/v2 v2.15.1
-	github.com/nexssp/flow v0.30.3
-	github.com/nexssp/kernel v0.32.0
-	github.com/nexssp/transport v0.5.1
+	github.com/nexssp/flow v0.60.0
+	github.com/nexssp/kernel v0.36.0
+	github.com/nexssp/transport v0.9.1
 )
 
 require (
@@ -19,6 +19,7 @@ require (
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
+	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/nats-io/jwt/v2 v2.8.2 // indirect
 	github.com/nats-io/nats.go v1.55.0 // indirect
@@ -28,6 +29,7 @@ require (
 	github.com/rogpeppe/go-internal v1.16.0 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect

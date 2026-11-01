@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,7 +32,7 @@ func (a *Analyzer) scanNFlowPipelines(source, file string) {
 	if !hasNFlowDirective(source) {
 		return
 	}
-	_, meta, err := compiler.Preprocess(context.Background(), standardFlowDirectives(), source, file)
+	prepared, err := compiler.PrepareSource(context.Background(), standardFlowDirectives(), source, file)
 	if err != nil {
 		if strings.Contains(source, "@pipeline") || strings.Contains(source, "@include") {
 			a.diagnostics = append(a.diagnostics, Diagnostic{
@@ -44,23 +45,92 @@ func (a *Analyzer) scanNFlowPipelines(source, file string) {
 		return
 	}
 
-	pipelines, _ := meta["pipelines"].(map[string]string)
-	modifiers, _ := meta["pipeline_modifiers"].(map[string][]string)
-	for name, body := range pipelines {
-		if a.seenNFlowPipelines[name] {
+	a.addFlowSchemas(prepared.Metadata(), file)
+	for _, pipeline := range orderedFlowPipelines(source, prepared) {
+		canonicalName := canonicalFlowPipelineName(pipeline.name)
+		if a.seenNFlowPipelines[canonicalName] {
 			continue
 		}
-		a.seenNFlowPipelines[name] = true
-		line := pipelineLine(source, name)
-		if route := parseFlowHTTPRoute(name, modifiers[name], file, line); route != nil {
+		a.seenNFlowPipelines[canonicalName] = true
+		if route := parseFlowHTTPRoute(pipeline.name, pipeline.modifiers, file, pipeline.line); route != nil {
 			a.flowHTTPRoutes = append(a.flowHTTPRoutes, *route)
 		}
-		contract := parsePipelineRoute(name, body, modifiers[name], a.actions, file, line)
+		contract := parsePipelineRoute(pipeline.name, pipeline.body, pipeline.modifiers, a.actions, file, pipeline.line)
 		if contract == nil {
 			continue
 		}
-		a.mergePipelineContract(*contract, name, file)
+		a.applyFlowPipelineSchemas(contract, pipeline.modifiers, file, pipeline.line)
+		a.mergePipelineContract(*contract, pipeline.name, file)
 	}
+}
+
+type flowPipelineMetadata struct {
+	name      string
+	body      string
+	modifiers []string
+	line      int
+}
+
+// orderedFlowPipelines joins Flow's source-ordered declarations to metadata,
+// whose pipeline keys retain the names as written in the source.
+func orderedFlowPipelines(source string, prepared *compiler.PreparedSource) []flowPipelineMetadata {
+	metadata := prepared.Metadata()
+	pipelines, _ := metadata["pipelines"].(map[string]string)
+	if len(pipelines) == 0 {
+		return nil
+	}
+	modifiers, _ := metadata["pipeline_modifiers"].(map[string][]string)
+
+	metadataNames := make([]string, 0, len(pipelines))
+	for name := range pipelines {
+		metadataNames = append(metadataNames, name)
+	}
+	sort.Strings(metadataNames)
+	nameByCanonical := make(map[string]string, len(metadataNames))
+	for _, name := range metadataNames {
+		canonical := canonicalFlowPipelineName(name)
+		if _, exists := nameByCanonical[canonical]; !exists {
+			nameByCanonical[canonical] = name
+		}
+	}
+
+	index := prepared.SourceIndex()
+	ordered := make([]flowPipelineMetadata, 0, len(index.Declarations))
+	for _, declaration := range index.Declarations {
+		if declaration.Kind != "pipeline" {
+			continue
+		}
+
+		canonical := canonicalFlowPipelineName(declaration.Name)
+		name, ok := nameByCanonical[canonical]
+		// Prefer the exact spelling at the declaration span if two raw metadata
+		// keys happen to canonicalize to the same resolver name.
+		if start, end := declaration.NameSpan.Start, declaration.NameSpan.End; start >= 0 && end >= start && end <= len(source) {
+			if sourceName := source[start:end]; sourceName != "" {
+				if _, exists := pipelines[sourceName]; exists {
+					name, ok = sourceName, true
+				}
+			}
+		}
+		if !ok {
+			continue
+		}
+		ordered = append(ordered, flowPipelineMetadata{
+			name:      name,
+			body:      pipelines[name],
+			modifiers: modifiers[name],
+			line:      sourceLineAt(source, declaration.NameSpan.Start),
+		})
+	}
+	return ordered
+}
+
+func canonicalFlowPipelineName(name string) string {
+	name = strings.TrimSpace(name)
+	if !strings.Contains(name, ".") {
+		return "pipeline." + name
+	}
+	return name
 }
 
 func parseFlowHTTPRoute(name string, rawModifiers []string, file string, line int) *FlowHTTPRoute {
@@ -93,11 +163,7 @@ func parseFlowHTTPRoute(name string, rawModifiers []string, file string, line in
 }
 
 func flowResolverPipelineName(name string) string {
-	name = strings.TrimSpace(name)
-	if strings.HasPrefix(name, "pipeline.") {
-		return name
-	}
-	return "pipeline." + name
+	return canonicalFlowPipelineName(name)
 }
 
 func hasNFlowDirective(source string) bool {
@@ -133,14 +199,11 @@ func stripNFlowPipelineBlocks(source string) string {
 	return strings.Join(out, "\n")
 }
 
-func pipelineLine(source, name string) int {
-	prefix := "@pipeline " + name
-	for i, line := range strings.Split(source, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
-			return i + 1
-		}
+func sourceLineAt(source string, offset int) int {
+	if offset < 0 || offset > len(source) {
+		offset = 0
 	}
-	return 1
+	return strings.Count(source[:offset], "\n") + 1
 }
 
 func parsePipelineRoute(name, body string, rawModifiers []string, actions []ActionContract, file string, line int) *ActionContract {
@@ -235,12 +298,15 @@ func (a *Analyzer) mergePipelineContract(incoming ActionContract, pipelineName, 
 			})
 			return
 		}
-		// Keep the Go-derived request/response contracts, fields and metadata;
-		// the nflow declaration supplies only the transport binding and route.
-		goReq, goRes := a.actions[i].ReqTypeName, a.actions[i].ResTypeName
-		goReqRef, goResRef := a.actions[i].ReqType, a.actions[i].ResType
-		incoming.ReqTypeName, incoming.ResTypeName = goReq, goRes
-		incoming.ReqType, incoming.ResType = goReqRef, goResRef
+		// Ordinary NFlow routes retain the historical Go-derived contract.
+		// When a boundary schema modifier is present, its schema bindings
+		// (including an intentionally absent request schema) are authoritative.
+		if !incoming.FlowSchemaDriven {
+			goReq, goRes := a.actions[i].ReqTypeName, a.actions[i].ResTypeName
+			goReqRef, goResRef := a.actions[i].ReqType, a.actions[i].ResType
+			incoming.ReqTypeName, incoming.ResTypeName = goReq, goRes
+			incoming.ReqType, incoming.ResType = goReqRef, goResRef
+		}
 		if a.actions[i].Description != "" && incoming.Description == "" {
 			incoming.Description = a.actions[i].Description
 		}
@@ -298,6 +364,59 @@ func flowContractName(name string) string {
 		return name
 	}
 	return "pipeline." + name
+}
+
+// ExcludeFlowPipelines removes named NFlow pipelines and their route-derived
+// action contracts from an analysis report. This is useful when runtime flags
+// conditionally mount a development pipeline that is not part of the default
+// production API surface.
+func ExcludeFlowPipelines(report *Report, names []string) {
+	if report == nil || len(names) == 0 {
+		return
+	}
+	excludedPipelines := make(map[string]bool, len(names))
+	excludedActions := make(map[string]bool, len(names))
+	for _, name := range names {
+		name = strings.TrimPrefix(strings.TrimSpace(name), "pipeline.")
+		if name == "" {
+			continue
+		}
+		excludedPipelines[name] = true
+		excludedActions[flowContractName(name)] = true
+	}
+
+	routes := report.FlowHTTPRoutes[:0]
+	for _, route := range report.FlowHTTPRoutes {
+		name := strings.TrimPrefix(route.Pipeline, "pipeline.")
+		if !excludedPipelines[name] {
+			routes = append(routes, route)
+		}
+	}
+	report.FlowHTTPRoutes = routes
+
+	actions := report.Actions[:0]
+	for _, action := range report.Actions {
+		if action.RouteSource == "nflow" && excludedActions[action.Name] {
+			continue
+		}
+		actions = append(actions, action)
+	}
+	report.Actions = actions
+
+	report.Stats.TotalActions = len(actions)
+	report.Stats.PublicActions = 0
+	report.Stats.InternalActions = 0
+	report.Stats.SystemActions = 0
+	for _, action := range actions {
+		switch action.Scope {
+		case "public":
+			report.Stats.PublicActions++
+		case "internal":
+			report.Stats.InternalActions++
+		case "system":
+			report.Stats.SystemActions++
+		}
+	}
 }
 
 func parseFlowRoute(value string) (string, string) {

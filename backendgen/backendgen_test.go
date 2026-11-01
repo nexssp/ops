@@ -73,3 +73,52 @@ func TestGenerateRejectsDuplicateEndpointsAndUnknownExclusions(t *testing.T) {
 		t.Fatalf("unknown exclusion error = %v", err)
 	}
 }
+
+func TestGenerateFromActionsMountsDeclaredRoutesOnly(t *testing.T) {
+	actions := []analyzer.ActionContract{
+		{Name: "catalog.list", Method: "GET", Path: "/api/items", RouteSource: "go"},
+		{Name: "flow.catalog.list", Method: "GET", Path: "/api/wrong-path", RouteSource: "nflow"},
+		{Name: "catalog.rebuild", Scope: "internal"},
+		{Name: "debug.trace", Method: "POST", Path: "/api/debug", RouteSource: "go"},
+	}
+	flowRoutes := []analyzer.FlowHTTPRoute{
+		{Pipeline: "catalog_list", Method: "GET", Path: "/api/flow-items"},
+		{Pipeline: "items_list", Method: "GET", Path: "/api/skip"},
+	}
+
+	source, err := GenerateFromActions(actions, flowRoutes, Config{
+		PackageName:      "catalog",
+		FunctionName:     "RunCatalogBackend",
+		ExcludePipelines: []string{"items_list"},
+		ExcludeActions:   []string{"debug.trace"},
+	})
+	if err != nil {
+		t.Fatalf("GenerateFromActions: %v", err)
+	}
+	generated := string(source)
+	for _, want := range []string{
+		`Action: "catalog.list"`,
+		`Action: "pipeline.catalog_list"`,
+		`compiled.Resolver.Action(route.Action)`,
+		"RunCatalogBackend(",
+	} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated source missing %q\n%s", want, generated)
+		}
+	}
+	for _, omitted := range []string{"pipeline.items_list", "flow.catalog.list", "/api/wrong-path", "catalog.rebuild", "debug.trace", "/api/debug"} {
+		if strings.Contains(generated, omitted) {
+			t.Errorf("excluded or unrouted action %q leaked into generated source:\n%s", omitted, generated)
+		}
+	}
+}
+
+func TestGenerateFromActionsRejectsIncompleteRouteAndUnknownExclusion(t *testing.T) {
+	if _, err := GenerateFromActions([]analyzer.ActionContract{{Name: "catalog.get", Method: "GET"}}, nil, Config{}); err == nil || !strings.Contains(err.Error(), "incomplete HTTP route") {
+		t.Fatalf("incomplete route error = %v", err)
+	}
+	actions := []analyzer.ActionContract{{Name: "catalog.list", Method: "GET", Path: "/api/items", RouteSource: "go"}}
+	if _, err := GenerateFromActions(actions, nil, Config{ExcludeActions: []string{"missing.action"}}); err == nil || !strings.Contains(err.Error(), "was not found") {
+		t.Fatalf("unknown action exclusion error = %v", err)
+	}
+}

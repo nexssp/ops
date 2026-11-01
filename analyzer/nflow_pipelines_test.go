@@ -102,3 +102,32 @@ func Create() action.AnyAction {
 		t.Fatal(err)
 	}
 }
+
+func TestNFlowPipelineOrderJoinsCanonicalMetadataNames(t *testing.T) {
+	root := t.TempDir()
+	writeFlow(t, root, "routes.nflow", `@pipeline second :route="GET /api/second"
+	 runtime.noop
+@end
+@pipeline service.first :route="POST /api/first"
+	 runtime.noop
+@end
+`)
+
+	report, err := analyzer.Analyze(root)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+	want := []analyzer.FlowHTTPRoute{
+		{Pipeline: "pipeline.second", Method: "GET", Path: "/api/second"},
+		{Pipeline: "service.first", Method: "POST", Path: "/api/first"},
+	}
+	if len(report.FlowHTTPRoutes) != len(want) {
+		t.Fatalf("Flow HTTP routes = %+v, want %+v", report.FlowHTTPRoutes, want)
+	}
+	for i := range want {
+		got := report.FlowHTTPRoutes[i]
+		if got.Pipeline != want[i].Pipeline || got.Method != want[i].Method || got.Path != want[i].Path {
+			t.Errorf("route[%d] = %+v, want %+v", i, got, want[i])
+		}
+	}
+}

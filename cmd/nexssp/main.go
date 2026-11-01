@@ -7,9 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	flowcli "github.com/nexssp/flow/cli"
-	"github.com/nexssp/flow/native"
-
 	"github.com/nexssp/ops/analyzer"
 	"github.com/nexssp/ops/deploygen"
 )
@@ -36,8 +33,10 @@ func main() {
 		handleActionsList(subArgs, true)
 	case "analyze", "audit":
 		handleAnalyze(subArgs)
-	case "ui:studio", "studio":
+	case "ui:studio":
 		handleStudioScaffold(subArgs)
+	case "studio":
+		handleFlowStudio(subArgs)
 	case "flow", "run:flow":
 		handleFlow(subArgs)
 	case "help", "--help", "-h":
@@ -49,15 +48,14 @@ func main() {
 	}
 }
 
-// handleFlow delegates to Flow's current CLI and the canonical native bundle
-// set. Application-specific libraries remain the responsibility of the
-// application's own runner.
+// handleFlow delegates to Flow's public CLI, which provides its native defaults.
+// Application-specific libraries remain the responsibility of the application's own runner.
 func handleFlow(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, `❌ Usage: nexssp flow <path.nflow> [json_payload] [flags]`)
 		os.Exit(2)
 	}
-	os.Exit(flowcli.RunWithBundles(append([]string{"run"}, args...), native.Bundles()))
+	os.Exit(runFlowCLI(args))
 }
 
 func handleUIScaffold(args []string) {
@@ -68,13 +66,18 @@ func handleUIScaffold(args []string) {
 		}
 	}
 
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ Could not determine project directory: %v\n", err)
+		os.Exit(1)
+	}
 	cfg := deploygen.UIConfig{
-		ServiceName: "jumalu",
+		ServiceName: scaffoldServiceName(cwd),
 		HTTPPort:    "8080",
 		ObsPort:     "9090",
 	}
 
-	fmt.Println("🚀 Scaffolding complete SvelteKit 5 + Svelte Runes UI Project in ui/...")
+	fmt.Println("🚀 Scaffolding SvelteKit 3 + Svelte 5 UI from the current project in ui/...")
 	count, err := deploygen.ScaffoldSvelteKitFromTemplates(context.Background(), ".", cfg, force)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ UI Scaffold error: %v\n", err)
@@ -86,8 +89,27 @@ func handleUIScaffold(args []string) {
 
 	fmt.Printf("\n✨ Scaffolding complete (%d files processed in ui/)!\n\n", count)
 	fmt.Println("👉 Quick start:")
-	fmt.Println("   1. cd ui && bun install (or npm install)")
-	fmt.Println("   2. bun dev (or npm run dev) -> http://localhost:5173")
+	fmt.Println("   1. cd ui && corepack pnpm install")
+	fmt.Println("   2. corepack pnpm run dev -> http://localhost:5173")
+}
+
+func scaffoldServiceName(projectDir string) string {
+	var name strings.Builder
+	separator := true
+	for _, r := range strings.ToLower(filepath.Base(projectDir)) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			name.WriteRune(r)
+			separator = false
+		} else if !separator {
+			name.WriteByte('-')
+			separator = true
+		}
+	}
+	result := strings.Trim(name.String(), "-")
+	if result == "" {
+		return "app"
+	}
+	return result
 }
 
 func handleSDKGen(args []string) {
@@ -108,7 +130,20 @@ func handleSDKGen(args []string) {
 		os.Exit(1)
 	}
 
+	analyzer.ExcludeFlowPipelines(report, opts.ExcludePipelines)
+
 	printReportSummary(report, opts.Quiet)
+	if diagnostics := analyzer.ValidatePublicAPI(report); len(diagnostics) > 0 {
+		fmt.Fprintln(os.Stderr, "⛔ Public SDK generation requires concrete request and response types:")
+		for _, diagnostic := range diagnostics {
+			fmt.Fprintf(os.Stderr, "❌ [%s] %s\n", diagnostic.Rule, diagnostic.Message)
+			if diagnostic.File != "" {
+				fmt.Fprintf(os.Stderr, "   %s\n", diagnostic.File)
+			}
+		}
+		fmt.Fprintln(os.Stderr, "💡 Fix the public contract; --force does not bypass this check.")
+		os.Exit(1)
+	}
 
 	if report.Stats.ErrorCount > 0 && !opts.Force {
 		fmt.Fprintf(os.Stderr, "⛔ Generation aborted: %d error(s) must be resolved.\n", report.Stats.ErrorCount)
@@ -117,7 +152,12 @@ func handleSDKGen(args []string) {
 		os.Exit(1)
 	}
 
-	files := analyzer.GenerateTypeScriptSDK(report)
+	var files []analyzer.GeneratedFile
+	if opts.APIOnly {
+		files = analyzer.GenerateTypeScriptAPISDK(report)
+	} else {
+		files = analyzer.GenerateTypeScriptSDK(report)
+	}
 
 	if !opts.Quiet {
 		fmt.Printf("✨ Generating TypeScript SDK under %s/\n", uiLibDir)
@@ -178,6 +218,16 @@ func handleSDKGen(args []string) {
 		}
 	}
 
+	pruned := 0
+	if opts.PruneGenerated {
+		var err error
+		pruned, err = pruneStaleGeneratedStoreFiles(uiLibDir, files)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "❌ prune generated stores: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
 	if !opts.Quiet {
 		fmt.Printf("  └── %d written", written)
 		if refreshed > 0 {
@@ -186,9 +236,57 @@ func handleSDKGen(args []string) {
 		if preserved > 0 {
 			fmt.Printf(", %d preserved", preserved)
 		}
+		if pruned > 0 {
+			fmt.Printf(", %d stale generated store files pruned", pruned)
+		}
 		fmt.Println()
 		fmt.Println()
 	}
+}
+
+// pruneStaleGeneratedStoreFiles removes only files in directories owned by
+// codegen_stores.go that are absent from the current generated manifest. The
+// runtime/, custom/, and app-level stores directories are deliberately outside
+// the prune scope.
+func pruneStaleGeneratedStoreFiles(uiLibDir string, generated []analyzer.GeneratedFile) (int, error) {
+	keep := make(map[string]bool, len(generated))
+	for _, file := range generated {
+		keep[filepath.Clean(filepath.FromSlash(file.Path))] = true
+	}
+
+	removed := 0
+	for _, category := range []string{"entities", "forms", "streams", "system"} {
+		root := filepath.Join(uiLibDir, "_gen", "stores", category)
+		if _, err := os.Stat(root); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return removed, err
+		}
+		err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if info.IsDir() {
+				return nil
+			}
+			rel, err := filepath.Rel(uiLibDir, path)
+			if err != nil {
+				return err
+			}
+			if keep[filepath.Clean(rel)] {
+				return nil
+			}
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+			removed++
+			return nil
+		})
+		if err != nil {
+			return removed, err
+		}
+	}
+	return removed, nil
 }
 
 func handleActionsList(args []string, enhanced bool) {
@@ -311,7 +409,7 @@ func handleStudioScaffold(args []string) {
 	}
 	fmt.Printf("✨ Studio written to %s\n", target)
 	fmt.Println("👉 Available at http://localhost:8080/studio once the UI is rebuilt:")
-	fmt.Println("   cd ui && bun run build")
+	fmt.Println("   cd ui && corepack pnpm run build")
 }
 
 func printHelp() {
@@ -319,15 +417,16 @@ func printHelp() {
 ⚡ Nexss Operations CLI (nexssp)
 
 	Usage:
-	  nexssp ui:init [--force]        Scaffold SvelteKit 5 + Runes project in ui/
-	  nexssp backend [flags] [root...] Generate a Flow/Kernel HTTP backend from .nflow
-	  nexssp sdk [flags] [root...]    Generate TypeScript + Zod SDK from Go AST
+		  nexssp ui:init [--force]        Scaffold SvelteKit 3 + Svelte 5 from this project
+		  nexssp backend [flags] [root...] Generate a Flow/Kernel HTTP backend from action routes
+	  nexssp sdk [flags] [root...]    Generate TypeScript + Zod SDK from action contracts
   nexssp actions [flags] [root...] [filter]
                                   List all registered actions and HTTP routes
-  nexssp analyze [flags] [root...]
+	nexssp analyze [flags] [root...]
                                   Run static AST analysis & contract diagnostics
-  nexssp ui:studio [--force]      Emit the single-file Studio SPA route
-  nexssp help                     Show this help
+	nexssp studio [file.nflow]      Open a local Svelte Studio for a Flow file
+	nexssp ui:studio [--force]      Emit the app-embedded Studio SPA route
+	nexssp help                     Show this help
 
 	Scan flags (backend / sdk / actions / analyze):
   --scan <dir>   Add a source root to the AST scan (repeatable)
@@ -338,14 +437,17 @@ func printHelp() {
 	Output flags:
 	  --quiet / -q   Suppress everything except diagnostics and errors
 	  backend: --out <file.go> --package <name> --function <name>
-	           --exclude-pipeline <name> (repeatable), --force to overwrite
+	           --exclude-pipeline <name>, --exclude-action <name> (repeatable)
+	           --force to overwrite
 
 SDK flags:
-  --force / -f   Ignore every safety guard:
-                   • bypass the error-diagnostics abort
-                   • overwrite write-once files even if you edited them
-  <uiLibDir>     Output root (default: ui/src/lib)
-  <out.ts>       Legacy: use its containing directory as the output root
+	--force / -f   Bypass regular diagnostics and overwrite write-once files.
+	                 Unsafe public TypeScript contracts are never force-generated.
+	--prune-generated  Remove stale generated files only under _gen/stores/{entities,forms,streams,system}
+	--exclude-pipeline <name>  Omit an NFlow pipeline from SDK output (repeatable)
+	--api-only  Emit only DTOs reachable from routed public actions
+	<uiLibDir>     Output root (default: ui/src/lib)
+	<out.ts>       Legacy: use its containing directory as the output root
 
 Generated tree (under <uiLibDir>):
   _gen/api/           Always overwritten — client, types, endpoints
@@ -365,11 +467,12 @@ Write-once behavior:
 	Examples:
 	  nexssp backend --scan . --out app/backend_server_gen.go --package app
 	  nexssp backend --scan . --exclude-pipeline chaos_retry_probe
+	  nexssp backend --scan . --exclude-action catalog.rebuild
 	  nexssp sdk
   nexssp sdk --scan . --scan ../ai/agent/docker
   nexssp sdk --force
   nexssp sdk -q --scan=. --scan=../ai/agent/sandbox
-  nexssp actions --enhanced jumalu
+	  nexssp actions --enhanced .
   nexssp analyze -q --scan . --scan ../ai/agent/docker
 
 💡 Contract rule: a struct that crosses a module boundary into a wire

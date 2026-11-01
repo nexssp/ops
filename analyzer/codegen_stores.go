@@ -87,7 +87,7 @@ func clusterStores(actions []ActionContract, structs map[string]StructDefinition
 		}
 
 		var sample *ActionContract
-		for _, cand := range []*ActionContract{c.Get, c.List, c.Create, c.Update} {
+		for _, cand := range []*ActionContract{c.Create, c.Update, c.Get, c.List} {
 			if cand != nil {
 				sample = cand
 				break
@@ -109,11 +109,46 @@ func clusterStores(actions []ActionContract, structs map[string]StructDefinition
 		c.EntityType = sDef.Name
 		c.EntityStruct = sDef
 		c.IDField = detectIDField(sDef)
+		if !supportsEntityListResponse(c.List, c.EntityType, structs) {
+			continue
+		}
 		out = append(out, *c)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Noun < out[j].Noun })
 	return out
+}
+
+// supportsEntityListResponse keeps the generic entity store limited to list
+// response shapes its runtime understands: []Entity or {items: []Entity}.
+// Domain-specific envelopes such as {agents: []Agent} still receive a typed
+// API client but not a misleading CRUD store.
+func supportsEntityListResponse(list *ActionContract, entity string, structs map[string]StructDefinition) bool {
+	if list == nil {
+		return true
+	}
+	if isEntitySlice(list.ResTypeName, entity) {
+		return true
+	}
+	response, ok := lookupStruct(structs, list.ResTypeName)
+	if !ok {
+		return false
+	}
+	for _, field := range response.Fields {
+		if field.Key == "items" && isEntitySlice(field.Type, entity) {
+			return true
+		}
+	}
+	return false
+}
+
+func isEntitySlice(typeName, entity string) bool {
+	clean := strings.TrimSpace(typeName)
+	clean = strings.TrimPrefix(clean, "[]")
+	clean = strings.TrimPrefix(clean, "*")
+	clean = strings.TrimSuffix(clean, "[]")
+	clean = strings.TrimPrefix(clean, "*")
+	return lastSegment(clean) == entity
 }
 
 func lookupStruct(structs map[string]StructDefinition, typeName string) (StructDefinition, bool) {
@@ -157,7 +192,7 @@ func lastSegment(s string) string {
 // not a CRUD verb AND has a meaningful request payload.
 //
 // The analyzer stores request type names with their package prefix, so a
-// handler that takes struct{} arrives here as "jumalu.struct{}". Normalize
+// handler that takes struct{} arrives here as "sample.struct{}". Normalize
 // before deciding so anonymous-empty request types never produce a form
 // store with an unresolvable type reference.
 func isFormAction(act *ActionContract) bool {
@@ -320,7 +355,7 @@ func generateAppStoresBarrel() []byte {
  * Ownership:
  *   _gen/stores/**    generated — do not edit
  *   custom/stores.ts  yours — add app-owned stores there
- *   stores/*.svelte.ts yours — app-specific stores (jumalu.svelte.ts, etc.)
+	 *   stores/*.svelte.ts yours — app-specific stores (app.svelte.ts, etc.)
  *   stores/index.ts   this file — the merge point
  */
 
@@ -331,7 +366,7 @@ export * from '../custom/stores';
 // managed by codegen — add them manually and they will survive every
 // 'nexssp sdk' run.
 //
-//   export * from './jumalu.svelte';
-//   export * from './auth.svelte';
+	//   export * from './app.svelte';
+	//   export * from './profile.svelte';
 `)
 }

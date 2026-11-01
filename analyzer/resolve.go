@@ -18,6 +18,17 @@ func (a *Analyzer) resolveActionStruct(act ActionContract, isReq bool) (StructDe
 		ref = act.ResType
 		typeName = act.ResTypeName
 	}
+	if act.FlowSchemaDriven {
+		schemaName := act.ReqSchemaName
+		if !isReq {
+			schemaName = act.ResSchemaName
+		}
+		if schemaName == "" {
+			return StructDefinition{}, false
+		}
+		schema, ok := a.flowSchemas[schemaName]
+		return schema, ok
+	}
 
 	if ref.Package != "" && ref.Name != "" {
 		if s, ok := a.structs[StructKey{Domain: ref.Domain, Package: ref.Package, Name: ref.Name}]; ok {

@@ -5,7 +5,6 @@ import (
 	"os"
 
 	flowcli "github.com/nexssp/flow/cli"
-	"github.com/nexssp/flow/native"
 )
 
 func handleFlowRun(args []string) {
@@ -13,5 +12,9 @@ func handleFlowRun(args []string) {
 		fmt.Fprintln(os.Stderr, `Usage: nexssp flow <path.nflow> [payload] [flags]`)
 		os.Exit(2)
 	}
-	os.Exit(flowcli.RunWithBundles(append([]string{"run"}, args...), native.Bundles()))
+	os.Exit(runFlowCLI(args))
+}
+
+func runFlowCLI(args []string) int {
+	return flowcli.Run(append([]string{"run"}, args...))
 }

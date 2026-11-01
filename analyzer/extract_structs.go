@@ -186,13 +186,36 @@ func (a *Analyzer) extractStructFields(st *ast.StructType) []FieldContract {
 			Name:       name,
 			Key:        jsonKey,
 			Type:       mapGoTypeToTS(typeStr),
-			Required:   strings.Contains(valRule, "required"),
+			Required:   fieldIsRequired(tagStruct, valRule),
 			Validation: valRule,
 			RawTags:    rawTag,
 			Multipart:  isMultipart,
 		})
 	}
 	return fields
+}
+
+// fieldIsRequired combines explicit validator rules with JSON encoding rules.
+// A field is required when validation says so or when JSON always emits it;
+// omitempty in either tag keeps a field optional unless validation explicitly
+// requires it.
+func fieldIsRequired(tag reflect.StructTag, validation string) bool {
+	if strings.Contains(validation, "required") {
+		return true
+	}
+	if strings.Contains(validation, "omitempty") {
+		return false
+	}
+	jsonTag := tag.Get("json")
+	if jsonTag == "" {
+		return false
+	}
+	for _, option := range strings.Split(jsonTag, ",")[1:] {
+		if option == "omitempty" {
+			return false
+		}
+	}
+	return true
 }
 
 // sameFields compares two field slices on the shape that matters to codegen:

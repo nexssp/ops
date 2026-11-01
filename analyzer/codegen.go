@@ -1,5 +1,10 @@
 package analyzer
 
+import (
+	"sort"
+	"strings"
+)
+
 // GenerateTypeScriptSDK produces the full generated tree for ui/src/lib/.
 //
 // Three categories of output, distinguished by GeneratedFile.Overwrite:
@@ -19,8 +24,20 @@ package analyzer
 //
 // Anything outside these paths is yours — the generator never touches it.
 func GenerateTypeScriptSDK(report *Report) []GeneratedFile {
-	collidingNames, tsStructs := analyzeCollisions(report.Structs)
-	reachable := computeReachableStructs(report, tsStructs, collidingNames)
+	return generateTypeScriptSDK(report, true)
+}
+
+// GenerateTypeScriptAPISDK emits DTOs reachable from routed public actions only.
+// It excludes unrelated structs that were exposed by package/file conventions.
+func GenerateTypeScriptAPISDK(report *Report) []GeneratedFile {
+	return generateTypeScriptSDK(report, false)
+}
+
+func generateTypeScriptSDK(report *Report, includeExposed bool) []GeneratedFile {
+	apiReport := reportWithFlowSchemas(report)
+	collidingNames, tsStructs := analyzeCollisions(apiReport.Structs)
+	reachable := computeReachableStructs(apiReport, tsStructs, collidingNames, includeExposed)
+	storeCollisions, _ := analyzeCollisions(report.Structs)
 
 	var files []GeneratedFile
 
@@ -33,12 +50,12 @@ func GenerateTypeScriptSDK(report *Report) []GeneratedFile {
 		},
 		GeneratedFile{
 			Path:      "_gen/api/types.ts",
-			Content:   generateTypesFile(report, reachable, tsStructs, collidingNames),
+			Content:   generateTypesFile(apiReport, reachable, tsStructs, collidingNames),
 			Overwrite: true,
 		},
 		GeneratedFile{
 			Path:      "_gen/api/endpoints.ts",
-			Content:   generateEndpointsFile(report, tsStructs, collidingNames),
+			Content:   generateEndpointsFile(apiReport, tsStructs, collidingNames),
 			Overwrite: true,
 		},
 		GeneratedFile{
@@ -54,7 +71,7 @@ func GenerateTypeScriptSDK(report *Report) []GeneratedFile {
 	)
 
 	// ── _gen/stores/ (always regenerated except runtime/) ──
-	files = append(files, generateStoreFiles(report, collidingNames)...)
+	files = append(files, generateStoreFiles(apiReport, storeCollisions)...)
 
 	// ── Write-once scaffolds ──
 	files = append(files,
@@ -83,16 +100,146 @@ func GenerateTypeScriptSDK(report *Report) []GeneratedFile {
 	return files
 }
 
+func reportWithFlowSchemas(report *Report) *Report {
+	if report == nil || len(report.FlowSchemas) == 0 {
+		return report
+	}
+	copyReport := *report
+	copyReport.Structs = make(map[string]StructDefinition, len(report.Structs)+len(report.FlowSchemas))
+	for key, definition := range report.Structs {
+		copyReport.Structs[key] = definition
+	}
+	usage := flowSchemaUsage(report)
+	names := make([]string, 0, len(report.FlowSchemas))
+	for name := range report.FlowSchemas {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		iQualified := strings.Contains(names[i], ".")
+		jQualified := strings.Contains(names[j], ".")
+		if iQualified != jQualified {
+			return !iQualified
+		}
+		return names[i] < names[j]
+	})
+	seenFlowTypes := make(map[string]StructDefinition)
+	for _, name := range names {
+		definition := report.FlowSchemas[name]
+		if sides := usage[definition.CustomName]; sides != nil {
+			definition.Fields = append([]FieldContract(nil), definition.Fields...)
+			for i := range definition.Fields {
+				field := &definition.Fields[i]
+				if sides.request && !sides.response {
+					field.Required = hasFlowValidatorRule(field.Validation, "required")
+				} else if sides.response && !sides.request {
+					field.Required = hasFlowValidatorRule(field.Validation, "required") || (!hasFlowValidatorRule(field.Validation, "omitempty") && !field.JSONOmitEmpty)
+				}
+			}
+		}
+		if prior, exists := seenFlowTypes[definition.CustomName]; exists {
+			if sameSchemaDefinition(prior, definition) {
+				continue
+			}
+			// Analyze reports conflicting Flow schema type names as errors; keep
+			// the first deterministic definition so direct library callers still
+			// never get duplicate declarations or a Go-derived fallback.
+			continue
+		}
+		seenFlowTypes[definition.CustomName] = definition
+		// A boundary schema is authoritative for the public API even if a Go
+		// package happens to declare a same-named DTO.
+		copyReport.Structs[definition.Qualified] = definition
+	}
+	return &copyReport
+}
+
+type flowSchemaSides struct {
+	request  bool
+	response bool
+}
+
+type flowSchemaQueueEntry struct {
+	typeName string
+	request  bool
+}
+
+func flowSchemaUsage(report *Report) map[string]*flowSchemaSides {
+	byType := make(map[string]StructDefinition, len(report.FlowSchemas))
+	for _, definition := range report.FlowSchemas {
+		if _, exists := byType[definition.CustomName]; !exists {
+			byType[definition.CustomName] = definition
+		}
+	}
+	usage := make(map[string]*flowSchemaSides)
+	queue := make([]flowSchemaQueueEntry, 0, len(report.Actions)*2)
+	mark := func(definition StructDefinition, request bool) {
+		sides := usage[definition.CustomName]
+		if sides == nil {
+			sides = &flowSchemaSides{}
+			usage[definition.CustomName] = sides
+		}
+		if request {
+			if sides.request {
+				return
+			}
+			sides.request = true
+		} else {
+			if sides.response {
+				return
+			}
+			sides.response = true
+		}
+		queue = append(queue, flowSchemaQueueEntry{typeName: definition.CustomName, request: request})
+	}
+	find := func(name string) (StructDefinition, bool) {
+		if definition, ok := report.FlowSchemas[name]; ok {
+			return definition, true
+		}
+		definition, ok := byType[flowSchemaTSName(name)]
+		return definition, ok
+	}
+	for _, action := range report.Actions {
+		if !action.FlowSchemaDriven {
+			continue
+		}
+		if action.ReqSchemaName != "" {
+			if definition, ok := find(action.ReqSchemaName); ok {
+				mark(definition, true)
+			}
+		}
+		if action.ResSchemaName != "" {
+			if definition, ok := find(action.ResSchemaName); ok {
+				mark(definition, false)
+			}
+		}
+	}
+	for len(queue) > 0 {
+		entry := queue[0]
+		queue = queue[1:]
+		definition, ok := byType[entry.typeName]
+		if !ok {
+			continue
+		}
+		for _, field := range definition.Fields {
+			nested, ok := byType[extractBaseType(field.Type)]
+			if ok {
+				mark(nested, entry.request)
+			}
+		}
+	}
+	return usage
+}
+
 // generateApiBarrel emits _gen/api/index.ts.
 func generateApiBarrel() []byte {
 	return []byte(`// ⚠️ DO NOT EDIT — Auto-generated by nexssp/ops
 //
-// Public surface of the generated API layer. Import from '$lib/_gen/api'
-// or, more usually, from the app-level merge barrel at '$lib/api'.
+// Public surface of the generated API layer. Import from '#lib/_gen/api'
+// or, more usually, from the app-level merge barrel at '#lib/api'.
 
-export * from './client';
-export * from './endpoints';
-export * from './types';
+export * from './client.js';
+export * from './endpoints.js';
+export * from './types.js';
 `)
 }
 
@@ -100,11 +247,11 @@ func generateTopBarrel() []byte {
 	return []byte(`// ⚠️ DO NOT EDIT — Auto-generated by nexssp/ops
 //
 // Single entry point for every generated artefact.
-// Import from '$lib/_gen' for the low-level surface, or from the
-// app-level barrels ('$lib/api', '$lib/stores/*') for the composed one.
+// Import from '#lib/_gen' for the low-level surface, or from the
+// app-level barrels ('#lib/api', '#lib/stores/*') for the composed one.
 
-export * from './api';
-export * from './stores';
+export * from './api/index.js';
+export * from './stores/index.js';
 `)
 }
 
@@ -112,13 +259,13 @@ export * from './stores';
 //
 // The app-level barrel re-exports both the runtime values and every DTO
 // type from the generated API tree so that app code never reaches into
-// $lib/_gen directly. Two re-exports are needed:
+// #lib/_gen directly. Two re-exports are needed:
 //
-//   - `export * from './_gen/api/types'` — re-exports every interface,
+//   - `export * from './_gen/api/types.js'` — re-exports every interface,
 //     every Zod schema, and every enum. This must be a runtime re-export
 //     (not `export type *`) because Zod schemas are values, not types.
 //
-//   - `export type { FieldMeta, EndpointMeta } from './_gen/api/endpoints'`
+//   - `export type { FieldMeta, EndpointMeta } from './_gen/api/endpoints.js'`
 //     — those two interfaces live only in the endpoints module. Their
 //     runtime values (the `api` object and `endpointMeta`) are already
 //     re-exported explicitly above.
@@ -135,8 +282,8 @@ func generateAppApiBarrel() []byte {
  *   api.ts            this file — the merge point
  */
 
-import { APIError, ErrorKind, api as generatedApi, endpointMeta } from './_gen/api';
-import { customApi } from './custom/api';
+import { APIError, ErrorKind, api as generatedApi, endpointMeta } from './_gen/api/index.js';
+import { customApi } from './custom/api.js';
 
 export const api = {
   ...generatedApi,
@@ -146,12 +293,12 @@ export const api = {
 export { APIError, ErrorKind, endpointMeta };
 
 // Re-export every generated DTO interface, Zod schema, and enum so that
-// app code never has to reach into $lib/_gen directly. This is a runtime
+// app code never has to reach into #lib/_gen directly. This is a runtime
 // re-export (not 'export type *') because Zod schemas are values.
-export * from './_gen/api/types';
+export * from './_gen/api/types.js';
 
 // Type-only re-exports from the endpoints module. The runtime values from
 // that module are already covered by the explicit exports above.
-export type { FieldMeta, EndpointMeta } from './_gen/api/endpoints';
+export type { FieldMeta, EndpointMeta } from './_gen/api/endpoints.js';
 `)
 }

@@ -63,6 +63,9 @@ func generateTypesFile(
 			if f.Multipart {
 				tsType = "File | Blob"
 			}
+			if f.Nullable && !f.Multipart {
+				tsType += " | null"
+			}
 			fmt.Fprintf(&buf, "  %s%s: %s;\n", f.Key, opt, tsType)
 		}
 		buf.WriteString("}\n\n")

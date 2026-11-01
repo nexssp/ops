@@ -1,10 +1,10 @@
 # Nexss OPS
 
-**Nexss OPS** is a Go toolkit for inspecting Go application code and generating the backend and TypeScript integration pieces used by Nexss applications. It builds on [Nexss Flow](https://github.com/nexssp/flow), Kernel, and Transport.
+**Nexss OPS** is a Go toolkit for inspecting Go application actions and NFlow programs, then generating backend routing and TypeScript integration pieces. It builds on [Nexss Flow](https://github.com/nexssp/flow), Kernel, and Transport.
 
 ## Requirements
 
-- Go 1.26.9 or later
+- Go 1.27.3 or later
 - [Task](https://taskfile.dev/) for the repository workflows
 
 ## Install the command-line tools
@@ -35,7 +35,7 @@ Run `nexssp help` for the full syntax and options. The main commands are:
 nexssp analyze --scan ./path/to/go/module
 nexssp actions --scan ./path/to/go/module
 
-# Generate a Flow/Kernel HTTP backend from the current project
+# Generate a Flow/Kernel HTTP backend from explicitly routed actions
 nexssp backend --scan . --out app/backend_server_gen.go --package app
 
 # Generate TypeScript and Zod SDK files (default output: ui/src/lib)
@@ -44,9 +44,20 @@ nexssp sdk --scan .
 # Scaffold the SvelteKit UI or the Studio route
 nexssp ui:init
 nexssp ui:studio
+
+# Open the standalone local Studio for a Flow program
+nexssp studio ./app.nflow
 ```
 
-The SDK generator preserves user-edited extension files by default. Use `nexssp sdk --force` only when you intend to overwrite those generated outputs. The UI scaffold currently uses the built-in `jumalu` service defaults.
+`nexssp backend` builds its route table from action contracts: it mounts only Go actions and NFlow pipelines that explicitly declare HTTP routes. Use `--exclude-action <name>` or `--exclude-pipeline <name>` to leave a route out. OPS does not invent routes or action implementations; application code supplies the registered actions and their Flow bundles to the generated server.
+
+`nexssp studio [file.nflow]` is a separate local Svelte editor for one Flow file. It saves edits to that `.nflow` file and delegates validation and execution to `nexssp flow`, keeping Flow/NFlow as the source of truth. The server binds only to loopback; running a flow executes it on the local machine with the current user's permissions. `nexssp ui:studio` remains the command that scaffolds the existing app-embedded Studio route.
+
+The SDK generator inspects the selected source tree and preserves user-edited extension files by default. Use `nexssp sdk --force` only when you intend to overwrite those generated outputs. The UI scaffold derives its display/package name from the current project directory and does not require a named system's API contract. Generated transport clients do not assume authentication or call token-refresh endpoints; add auth only in the application, with caller-supplied headers or a custom fetcher.
+
+When an NFlow HTTP pipeline binds `:request-schema` or `:response-schema`, the public SDK types and endpoint signatures come from those NFlow `@schema` declarations rather than conflicting Go-AST DTOs. Bodyless routes stay argument-free, and unsupported untyped fields such as `any` are reported instead of widened into public contracts. Routes without explicit NFlow boundary schemas continue to use their analyzed action contracts.
+
+**Existing UI scaffolds:** `nexssp ui:init` now emits a generic SvelteKit shell and no longer generates the legacy login/auth/client/router templates. Existing files are preserved unless `--force` is used; migrate or remove obsolete files yourself, and back up local edits before forcing replacements.
 
 ## Run a Flow program
 
@@ -66,6 +77,14 @@ Install the repository tools and inspect available tasks:
 go install github.com/go-task/task/v3/cmd/task@latest
 task setup
 task
+```
+
+To rebuild the standalone Flow Studio frontend before compiling the Go CLI:
+
+```sh
+cd flowstudio/web
+npm ci
+npm run build
 ```
 
 Common checks:

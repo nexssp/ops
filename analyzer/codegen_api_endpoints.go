@@ -26,6 +26,7 @@ func generateEndpointsFile(report *Report, tsStructs map[string]StructDefinition
   key: string;
   type: string;
   required: boolean;
+  nullable?: boolean;
   validation?: string;
   raw_tags?: string;
   multipart?: boolean;
@@ -96,6 +97,18 @@ func pathResolverFor(method string) string {
 	}
 }
 
+func queryRequestIsOptional(act ActionContract) bool {
+	if act.Method != "GET" && act.Method != "DELETE" {
+		return false
+	}
+	for _, field := range act.ReqFields {
+		if field.Required {
+			return false
+		}
+	}
+	return true
+}
+
 func emitEndpointMethod(
 	buf *bytes.Buffer,
 	act ActionContract,
@@ -120,9 +133,13 @@ func emitEndpointMethod(
 			return
 		}
 		if act.Method == "GET" || act.Method == "DELETE" {
+			optional := ""
+			if queryRequestIsOptional(act) {
+				optional = "?"
+			}
 			fmt.Fprintf(buf,
-				"  %s: (req?: %s): Promise<Blob> => {%s\n    return _fetcherBlob({ method: '%s', path: %s('%s', req) });\n  },\n\n",
-				mName, reqT, valCheck, act.Method, resolver, act.Path,
+				"  %s: (req%s: %s): Promise<Blob> => {%s\n    return _fetcherBlob({ method: '%s', path: %s('%s', req) });\n  },\n\n",
+				mName, optional, reqT, valCheck, act.Method, resolver, act.Path,
 			)
 			return
 		}
@@ -184,9 +201,13 @@ func emitEndpointMethod(
 	}
 
 	if act.Method == "GET" || act.Method == "DELETE" {
+		optional := ""
+		if queryRequestIsOptional(act) {
+			optional = "?"
+		}
 		fmt.Fprintf(buf,
-			"  %s: (req?: %s): Promise<%s> => {%s\n    return _fetcher({ method: '%s', path: %s('%s', req) });\n  },\n\n",
-			mName, reqT, resT, valCheck, act.Method, resolver, act.Path,
+			"  %s: (req%s: %s): Promise<%s> => {%s\n    return _fetcher({ method: '%s', path: %s('%s', req) });\n  },\n\n",
+			mName, optional, reqT, resT, valCheck, act.Method, resolver, act.Path,
 		)
 		return
 	}

@@ -4,7 +4,7 @@ Nexss OPS is part of the Nexss Ecosystem. Keep changes focused, preserve compati
 
 ## Toolchain
 
-This repository is a single Go module. Use Go 1.26.9 or later and [Task](https://taskfile.dev/) for the documented development workflows.
+This repository is a single Go module. Use Go 1.27.3 or later and [Task](https://taskfile.dev/) for the documented development workflows.
 
 ```sh
 go install github.com/go-task/task/v3/cmd/task@latest

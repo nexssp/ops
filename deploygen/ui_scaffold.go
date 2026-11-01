@@ -37,7 +37,6 @@ func ScaffoldSvelteKitFromTemplates(ctx context.Context, baseDir string, cfg UIC
 	specs := []UIFileSpec{
 		// 1. Konfiguracja projektu
 		{"package.json", uiPackageJSONTmpl},
-		{"svelte.config.js", uiSvelteConfigTmpl},
 		{"vite.config.ts", uiViteConfigTmpl},
 		{"tsconfig.json", uiTSConfigTmpl},
 		{filepath.Join("src", "app.html"), uiAppHTMLTmpl},
@@ -48,21 +47,13 @@ func ScaffoldSvelteKitFromTemplates(ctx context.Context, baseDir string, cfg UIC
 		{filepath.Join("src", "routes", "+layout.svelte"), uiLayoutSvelteTmpl},
 		{filepath.Join("src", "routes", "+page.svelte"), uiPageSvelteTmpl},
 		{filepath.Join("src", "routes", "+error.svelte"), uiErrorSvelteTmpl},
-		{filepath.Join("src", "routes", "login", "+page.svelte"), uiLoginSvelteTmpl},
 
-		// 3. Klient HTTP & API Barrel
-		{filepath.Join("src", "lib", "client.ts"), uiClientTSTmpl},
-		{filepath.Join("src", "lib", "api.ts"), uiAPIBarrelTmpl},
-		{filepath.Join("src", "lib", "api.custom.ts"), uiCustomAPITmpl},
-		{filepath.Join("src", "lib", "router.svelte.ts"), uiRouterTmpl},
-
-		// 4. Stores & Narzędzia CRUD (Svelte 5 Runes)
-		{filepath.Join("src", "lib", "stores", "auth.svelte.ts"), uiAuthStoreTmpl},
+		// 3. Reusable CRUD utilities (Svelte 5 Runes)
 		{filepath.Join("src", "lib", "utils", "form-action.svelte.ts"), uiFormActionTmpl},
 		{filepath.Join("src", "lib", "utils", "useCrud.svelte.ts"), uiUseCrudTmpl},
 		{filepath.Join("src", "lib", "utils", "table.ts"), uiTableHelperTmpl},
 
-		// 5. Komponenty UI
+		// 4. Komponenty UI
 		{filepath.Join("src", "lib", "components", "ui", "AppButton.svelte"), uiAppButtonTmpl},
 		{filepath.Join("src", "lib", "components", "ui", "AppTable.svelte"), uiAppTableTmpl},
 		{filepath.Join("src", "lib", "components", "ui", "AppPagination.svelte"), uiAppPaginationTmpl},

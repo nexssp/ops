@@ -16,18 +16,77 @@ import (
 	"github.com/nexssp/ops/analyzer"
 )
 
-// Config controls the generated Go package and the set of mounted Flow routes.
+// Config controls the generated Go package and the set of mounted action routes.
 type Config struct {
 	PackageName      string
 	FunctionName     string
 	ExcludePipelines []string
+	ExcludeActions   []string
 }
 
-// Generate returns formatted Go source for a Flow/Kernel HTTP server bootstrap.
-// It mounts only HTTP routes found in .nflow @pipeline declarations. The
-// generated function accepts application bundles, an optional mux configurator
-// (for a UI or other app-owned handlers), and standard net/http middleware.
+type generatedRoute struct {
+	Action string
+	Method string
+	Path   string
+	Source string
+}
+
+// Generate returns formatted Go source for a Flow/Kernel HTTP server bootstrap
+// from NFlow pipeline routes. It remains available for callers that already
+// have a FlowHTTPRoute manifest.
 func Generate(routes []analyzer.FlowHTTPRoute, config Config) ([]byte, error) {
+	selected := make([]generatedRoute, 0, len(routes))
+	for _, route := range routes {
+		selected = append(selected, generatedRoute{
+			Action: normalizePipelineName(route.Pipeline),
+			Method: route.Method,
+			Path:   route.Path,
+			Source: "pipeline",
+		})
+	}
+	return generate(selected, config)
+}
+
+// GenerateFromActions returns a backend bootstrap for actions with explicitly
+// declared HTTP routes. NFlow routes use their compiler resolver names from
+// flowRoutes; Go action routes use their action names from the contracts. It
+// does not invent paths or action implementations.
+func GenerateFromActions(actions []analyzer.ActionContract, flowRoutes []analyzer.FlowHTTPRoute, config Config) ([]byte, error) {
+	routes := make([]generatedRoute, 0, len(actions)+len(flowRoutes))
+	for _, action := range actions {
+		if action.RouteSource == "nflow" {
+			continue
+		}
+		if action.Method == "" && action.Path == "" {
+			continue
+		}
+		if strings.TrimSpace(action.Name) == "" {
+			return nil, fmt.Errorf("routed action has an empty name")
+		}
+		if action.Method == "" || action.Path == "" {
+			return nil, fmt.Errorf("action %q has an incomplete HTTP route: both method and path are required", action.Name)
+		}
+		source := action.RouteSource
+		if source == "" {
+			source = "action"
+		}
+		routes = append(routes, generatedRoute{Action: strings.TrimSpace(action.Name), Method: action.Method, Path: action.Path, Source: source})
+	}
+	for _, route := range flowRoutes {
+		routes = append(routes, generatedRoute{
+			Action: normalizePipelineName(route.Pipeline),
+			Method: route.Method,
+			Path:   route.Path,
+			Source: "pipeline",
+		})
+	}
+	return generate(routes, config)
+}
+
+// generate returns the shared runtime bootstrap for an analyzed action route
+// manifest. The generated function accepts application bundles, an optional
+// mux configurator (for a UI or other app-owned handlers), and middleware.
+func generate(routes []generatedRoute, config Config) ([]byte, error) {
 	if config.PackageName == "" {
 		config.PackageName = "main"
 	}
@@ -41,53 +100,75 @@ func Generate(routes []analyzer.FlowHTTPRoute, config Config) ([]byte, error) {
 		return nil, fmt.Errorf("function name %q must be an exported Go identifier", config.FunctionName)
 	}
 
-	excluded := make(map[string]bool, len(config.ExcludePipelines))
+	excludedPipelines := make(map[string]bool, len(config.ExcludePipelines))
 	for _, name := range config.ExcludePipelines {
 		name = normalizePipelineName(name)
 		if name == "pipeline." {
 			return nil, fmt.Errorf("empty pipeline name in exclusions")
 		}
-		excluded[name] = true
+		excludedPipelines[name] = true
+	}
+	excludedActions := make(map[string]bool, len(config.ExcludeActions))
+	for _, name := range config.ExcludeActions {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, fmt.Errorf("empty action name in exclusions")
+		}
+		excludedActions[name] = true
 	}
 
-	selected := make([]analyzer.FlowHTTPRoute, 0, len(routes))
-	foundExclusions := make(map[string]bool, len(excluded))
-	seenPipelines := make(map[string]bool, len(routes))
+	selected := make([]generatedRoute, 0, len(routes))
+	foundPipelines := make(map[string]bool, len(excludedPipelines))
+	foundActions := make(map[string]bool, len(excludedActions))
+	seenActions := make(map[string]bool, len(routes))
 	seenEndpoints := make(map[string]string, len(routes))
 	for _, route := range routes {
-		route.Pipeline = normalizePipelineName(route.Pipeline)
-		if route.Pipeline == "pipeline." {
-			return nil, fmt.Errorf("route has an empty pipeline name")
+		route.Action = strings.TrimSpace(route.Action)
+		if route.Source == "pipeline" || route.Source == "nflow" {
+			route.Action = normalizePipelineName(route.Action)
 		}
-		if excluded[route.Pipeline] {
-			foundExclusions[route.Pipeline] = true
+		if route.Action == "" || route.Action == "pipeline." {
+			return nil, fmt.Errorf("route has an empty action name")
+		}
+		if route.Source == "pipeline" || route.Source == "nflow" {
+			if excludedPipelines[route.Action] {
+				foundPipelines[route.Action] = true
+				continue
+			}
+		} else if excludedActions[route.Action] {
+			foundActions[route.Action] = true
 			continue
 		}
 		if err := validateRoute(route); err != nil {
 			return nil, err
 		}
-		if seenPipelines[route.Pipeline] {
-			return nil, fmt.Errorf("duplicate Flow route pipeline %q", route.Pipeline)
+		if seenActions[route.Action] {
+			return nil, fmt.Errorf("duplicate HTTP action route %q", route.Action)
 		}
-		seenPipelines[route.Pipeline] = true
+		seenActions[route.Action] = true
 		endpoint := route.Method + " " + route.Path
 		if previous, ok := seenEndpoints[endpoint]; ok {
-			return nil, fmt.Errorf("duplicate HTTP route %q declared by %q and %q", endpoint, previous, route.Pipeline)
+			return nil, fmt.Errorf("duplicate HTTP route %q declared by %q and %q", endpoint, previous, route.Action)
 		}
-		seenEndpoints[endpoint] = route.Pipeline
+		seenEndpoints[endpoint] = route.Action
 		selected = append(selected, route)
 	}
-	for name := range excluded {
-		if !foundExclusions[name] {
+	for name := range excludedPipelines {
+		if !foundPipelines[name] {
 			return nil, fmt.Errorf("excluded pipeline %q was not found among .nflow HTTP routes", name)
 		}
 	}
+	for name := range excludedActions {
+		if !foundActions[name] {
+			return nil, fmt.Errorf("excluded action %q was not found among routed actions", name)
+		}
+	}
 	if len(selected) == 0 {
-		return nil, fmt.Errorf("no .nflow HTTP routes remain for backend generation")
+		return nil, fmt.Errorf("no routed actions remain for backend generation")
 	}
 	sort.Slice(selected, func(i, j int) bool {
-		if selected[i].Pipeline != selected[j].Pipeline {
-			return selected[i].Pipeline < selected[j].Pipeline
+		if selected[i].Action != selected[j].Action {
+			return selected[i].Action < selected[j].Action
 		}
 		if selected[i].Method != selected[j].Method {
 			return selected[i].Method < selected[j].Method
@@ -98,10 +179,10 @@ func Generate(routes []analyzer.FlowHTTPRoute, config Config) ([]byte, error) {
 	var source strings.Builder
 	fmt.Fprintf(&source, "// Code generated by nexssp OPS. DO NOT EDIT.\npackage %s\n\n", config.PackageName)
 	source.WriteString(generatedImports)
-	source.WriteString("\n// opsGeneratedBackendRoute is an HTTP route bound to a compiled Flow pipeline.\ntype opsGeneratedBackendRoute struct {\n\tPipeline string\n\tMethod string\n\tPath string\n}\n\nvar opsGeneratedBackendRoutes = []opsGeneratedBackendRoute{\n")
+	source.WriteString("\n// opsGeneratedBackendRoute is an HTTP route bound to a registered application action.\ntype opsGeneratedBackendRoute struct {\n\tAction string\n\tMethod string\n\tPath string\n}\n\nvar opsGeneratedBackendRoutes = []opsGeneratedBackendRoute{\n")
 	for _, route := range selected {
-		fmt.Fprintf(&source, "\t{Pipeline: %s, Method: %s, Path: %s},\n",
-			strconv.Quote(route.Pipeline), strconv.Quote(route.Method), strconv.Quote(route.Path))
+		fmt.Fprintf(&source, "\t{Action: %s, Method: %s, Path: %s},\n",
+			strconv.Quote(route.Action), strconv.Quote(route.Method), strconv.Quote(route.Path))
 	}
 	source.WriteString("}\n")
 	runtime := strings.ReplaceAll(generatedRuntime, "@@FUNCTION_NAME@@", config.FunctionName)
@@ -126,14 +207,14 @@ func normalizePipelineName(name string) string {
 	return "pipeline." + name
 }
 
-func validateRoute(route analyzer.FlowHTTPRoute) error {
+func validateRoute(route generatedRoute) error {
 	switch route.Method {
 	case "GET", "POST", "PUT", "DELETE":
 	default:
-		return fmt.Errorf("pipeline %q uses unsupported HTTP method %q; generated backends support GET, POST, PUT, and DELETE", route.Pipeline, route.Method)
+		return fmt.Errorf("action %q uses unsupported HTTP method %q; generated backends support GET, POST, PUT, and DELETE", route.Action, route.Method)
 	}
 	if !strings.HasPrefix(route.Path, "/api/") || path.Clean(route.Path) != route.Path || strings.ContainsAny(route.Path, "?#\\ \t\r\n") {
-		return fmt.Errorf("pipeline %q has unsafe route path %q; paths must be canonical /api/* paths without query, fragment, backslash, or whitespace", route.Pipeline, route.Path)
+		return fmt.Errorf("action %q has unsafe route path %q; paths must be canonical /api/* paths without query, fragment, backslash, or whitespace", route.Action, route.Path)
 	}
 	return nil
 }
@@ -160,7 +241,7 @@ const generatedImports = `import (
 
 const generatedRuntime = `
 // @@FUNCTION_NAME@@ compiles workflowPath once and mounts only the generated
-// .nflow HTTP routes. appBundles supplies application actions/extensions;
+// HTTP routes for analyzed actions. appBundles supplies application actions/extensions;
 // configureMux can attach a UI handler, and middleware follows net/http shape.
 // Binding is intentionally loopback-only by default to avoid accidental public
 // exposure. An app-provided bundle that already owns :route is reused.
@@ -235,14 +316,14 @@ func @@FUNCTION_NAME@@(ctx context.Context, workflowPath, addr string, appBundle
 			return fmt.Errorf("compile backend Flow: %w", err)
 		}
 
-		endpoints := make([]action.AnyAction, 0, len(opsGeneratedBackendRoutes))
-		for _, route := range opsGeneratedBackendRoutes {
-			endpoint, ok := compiled.Resolver.Action(route.Pipeline)
-			if !ok {
-				return fmt.Errorf("backend endpoint pipeline %q was not materialized", route.Pipeline)
-			}
-			if len(endpoint.GetBindings()) == 0 {
-				return fmt.Errorf("backend endpoint pipeline %q has no Kernel route binding", route.Pipeline)
+			endpoints := make([]action.AnyAction, 0, len(opsGeneratedBackendRoutes))
+			for _, route := range opsGeneratedBackendRoutes {
+				endpoint, ok := compiled.Resolver.Action(route.Action)
+				if !ok {
+					return fmt.Errorf("backend endpoint action %q was not materialized", route.Action)
+				}
+				if len(endpoint.GetBindings()) == 0 {
+					return fmt.Errorf("backend endpoint action %q has no Kernel route binding", route.Action)
 			}
 			endpoints = append(endpoints, endpoint)
 		}

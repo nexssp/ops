@@ -15,6 +15,7 @@ import (
 type Analyzer struct {
 	fset           *token.FileSet
 	structs        map[StructKey]StructDefinition
+	flowSchemas    map[string]StructDefinition
 	enums          map[StructKey]EnumDefinition
 	actions        []ActionContract
 	flowHTTPRoutes []FlowHTTPRoute
@@ -40,6 +41,7 @@ func New() *Analyzer {
 	return &Analyzer{
 		fset:               token.NewFileSet(),
 		structs:            make(map[StructKey]StructDefinition),
+		flowSchemas:        make(map[string]StructDefinition),
 		enums:              make(map[StructKey]EnumDefinition),
 		actions:            make([]ActionContract, 0),
 		flowHTTPRoutes:     make([]FlowHTTPRoute, 0),
@@ -215,6 +217,10 @@ func (a *Analyzer) buildReport() *Report {
 			structs[s.ImportPath+"."+s.Name] = s
 		}
 	}
+	flowSchemas := make(map[string]StructDefinition, len(a.flowSchemas))
+	for name, schema := range a.flowSchemas {
+		flowSchemas[name] = schema
+	}
 
 	enums := make(map[string]EnumDefinition, len(a.enums))
 	for _, e := range a.enums {
@@ -235,6 +241,7 @@ func (a *Analyzer) buildReport() *Report {
 		ScannedFiles:   a.fileCount,
 		Actions:        filteredActions,
 		FlowHTTPRoutes: flowHTTPRoutes,
+		FlowSchemas:    flowSchemas,
 		Structs:        structs,
 		Enums:          enums,
 		Diagnostics:    filteredDiags,

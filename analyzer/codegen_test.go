@@ -3,41 +3,57 @@ package analyzer_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/nexssp/ops/analyzer"
 )
 
-func TestGenerateJumaluSDK(t *testing.T) {
-	if _, err := os.Stat("../../jumalu"); os.IsNotExist(err) {
-		t.Skip("skipping local integration test: ../../jumalu not found")
+func TestGenerateSDKFromSourceTree(t *testing.T) {
+	root := t.TempDir()
+	source := `package sampleapi
+
+import (
+	"github.com/nexssp/kernel/action"
+	"github.com/nexssp/transport/thttp"
+)
+
+type CreateWidgetRequest struct {
+	Name string ` + "`json:\"name\" validate:\"required\"`" + `
+}
+
+type Widget struct {
+	ID string ` + "`json:\"id\"`" + `
+}
+
+func RegisterActions() action.AnyAction {
+	return action.New[CreateWidgetRequest, Widget]("widgets.create", nil).
+		Route(thttp.POST("/api/widgets")).
+		Build()
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "api.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
 	}
 
-	report, err := analyzer.Analyze("../../jumalu")
+	report, err := analyzer.Analyze(root)
 	if err != nil {
-		t.Fatalf("analyzer error: %v", err)
+		t.Fatalf("analyze source tree: %v", err)
 	}
 
-	files := analyzer.GenerateTypeScriptSDK(report)
-	outDir := "../../jumalu/ui/src/lib"
-
-	_ = os.MkdirAll(outDir, 0o755)
-
-	for _, f := range files {
-		full := filepath.Join(outDir, f.Path)
-
-		if !f.Overwrite {
-			if _, err := os.Stat(full); err == nil {
-				t.Logf("⏭️  preserved (write-once): %s", full)
-				continue
-			}
+	var apiTypes, endpoints string
+	for _, file := range analyzer.GenerateTypeScriptAPISDK(report) {
+		switch file.Path {
+		case "_gen/api/types.ts":
+			apiTypes = string(file.Content)
+		case "_gen/api/endpoints.ts":
+			endpoints = string(file.Content)
 		}
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-			t.Fatalf("mkdir for %s: %v", full, err)
-		}
-		if err := os.WriteFile(full, f.Content, 0o600); err != nil {
-			t.Fatalf("failed to write %s: %v", full, err)
-		}
-		t.Logf("✅ wrote: %s (%d bytes)", full, len(f.Content))
+	}
+	if !strings.Contains(apiTypes, "export interface CreateWidgetRequest") || !strings.Contains(apiTypes, "export interface Widget {") {
+		t.Fatalf("generated types do not reflect the scanned source:\n%s", apiTypes)
+	}
+	if !strings.Contains(endpoints, "widgetsCreate") || !strings.Contains(endpoints, "/api/widgets") {
+		t.Fatalf("generated endpoints do not reflect the scanned source:\n%s", endpoints)
 	}
 }

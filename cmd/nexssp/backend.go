@@ -17,6 +17,7 @@ type backendGenOptions struct {
 	PackageName      string
 	FunctionName     string
 	ExcludePipelines []string
+	ExcludeActions   []string
 	Force            bool
 	Quiet            bool
 }
@@ -85,6 +86,14 @@ func parseBackendGenArgs(args []string) (backendGenOptions, error) {
 			opts.ExcludePipelines = append(opts.ExcludePipelines, v)
 		case strings.HasPrefix(arg, "--exclude-pipeline="):
 			opts.ExcludePipelines = append(opts.ExcludePipelines, strings.TrimPrefix(arg, "--exclude-pipeline="))
+		case arg == "--exclude-action":
+			v, err := value(arg)
+			if err != nil {
+				return opts, err
+			}
+			opts.ExcludeActions = append(opts.ExcludeActions, v)
+		case strings.HasPrefix(arg, "--exclude-action="):
+			opts.ExcludeActions = append(opts.ExcludeActions, strings.TrimPrefix(arg, "--exclude-action="))
 		case strings.HasPrefix(arg, "-"):
 			return opts, fmt.Errorf("unknown backend flag %q", arg)
 		default:
@@ -131,10 +140,11 @@ func handleBackendGen(args []string) {
 		os.Exit(1)
 	}
 
-	source, err := backendgen.Generate(report.FlowHTTPRoutes, backendgen.Config{
+	source, err := backendgen.GenerateFromActions(report.Actions, report.FlowHTTPRoutes, backendgen.Config{
 		PackageName:      opts.PackageName,
 		FunctionName:     opts.FunctionName,
 		ExcludePipelines: opts.ExcludePipelines,
+		ExcludeActions:   opts.ExcludeActions,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "backend: generation failed: %v\n", err)
@@ -156,27 +166,41 @@ func handleBackendGen(args []string) {
 		os.Exit(1)
 	}
 	if !opts.Quiet {
-		fmt.Printf("Generated Flow/Kernel backend bootstrap: %s (%d mounted .nflow HTTP routes)\n", opts.Output, selectedBackendRouteCount(report.FlowHTTPRoutes, opts.ExcludePipelines))
+		fmt.Printf("Generated Flow/Kernel backend bootstrap: %s (%d mounted HTTP action routes)\n", opts.Output, selectedBackendRouteCount(report.Actions, report.FlowHTTPRoutes, opts.ExcludePipelines, opts.ExcludeActions))
 		fmt.Println("The generated server accepts application bundles and an optional UI mux hook; it binds to loopback only by default.")
 	}
 }
 
-func selectedBackendRouteCount(routes []analyzer.FlowHTTPRoute, exclusions []string) int {
-	excluded := make(map[string]bool, len(exclusions))
-	for _, name := range exclusions {
+func selectedBackendRouteCount(actions []analyzer.ActionContract, flowRoutes []analyzer.FlowHTTPRoute, excludedPipelines, excludedActions []string) int {
+	pipelines := make(map[string]bool, len(excludedPipelines))
+	for _, name := range excludedPipelines {
 		name = strings.TrimSpace(name)
 		if name != "" && !strings.HasPrefix(name, "pipeline.") {
 			name = "pipeline." + name
 		}
-		excluded[name] = true
+		pipelines[name] = true
+	}
+	actionNames := make(map[string]bool, len(excludedActions))
+	for _, name := range excludedActions {
+		actionNames[strings.TrimSpace(name)] = true
 	}
 	count := 0
-	for _, route := range routes {
+	for _, action := range actions {
+		if action.RouteSource == "nflow" || action.Method == "" || action.Path == "" {
+			continue
+		}
+		name := strings.TrimSpace(action.Name)
+		if actionNames[name] {
+			continue
+		}
+		count++
+	}
+	for _, route := range flowRoutes {
 		name := strings.TrimSpace(route.Pipeline)
 		if name != "" && !strings.HasPrefix(name, "pipeline.") {
 			name = "pipeline." + name
 		}
-		if !excluded[name] {
+		if !pipelines[name] {
 			count++
 		}
 	}
@@ -186,7 +210,7 @@ func selectedBackendRouteCount(routes []analyzer.FlowHTTPRoute, exclusions []str
 func printBackendHelp() {
 	fmt.Fprintln(os.Stderr, `Usage: nexssp backend [flags] [root...]
 
-Generate a self-contained Flow/Kernel HTTP server bootstrap from .nflow @pipeline :route declarations.
+Generate a self-contained Flow/Kernel HTTP server bootstrap from explicitly routed actions and NFlow pipelines.
 
 Flags:
   --scan <dir|file>             Add a scan root (repeatable; defaults to .)
@@ -194,6 +218,7 @@ Flags:
   --package <name>              Generated Go package (default: main)
   --function <name>             Exported server function (default: RunGeneratedBackendServer)
   --exclude-pipeline <name>     Do not mount a route pipeline (repeatable; accepts raw or pipeline.* name)
+  --exclude-action <name>       Do not mount a Go action route (repeatable)
   --force                       Overwrite an existing output file
   --quiet / -q                  Suppress summary output except diagnostics/errors
   --help                        Show this help
@@ -202,6 +227,7 @@ Example:
   nexssp backend --scan . --out app/backend_server_gen.go --package app --exclude-pipeline chaos_retry_probe
 
 The generated function accepts app compiler bundles, an optional http.ServeMux configurator, and middleware.
-A bundle that already registers :route is reused; otherwise OPS emits a safe /api/* route modifier.
+Only routes explicitly declared by Go actions or NFlow pipelines are mounted; OPS does not invent routes or action implementations.
+For NFlow routes, a bundle that already registers :route is reused; otherwise OPS emits a safe /api/* route modifier.
 Excluded pipelines are still compiled from the workflow but are not mounted as HTTP endpoints.`)
 }

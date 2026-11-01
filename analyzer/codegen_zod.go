@@ -78,6 +78,9 @@ func rulesToTag(rules []validatorRule) string {
 
 func mapFieldToZod(f FieldContract, tsStructs, raw map[string]StructDefinition, colliding map[string]bool) (string, []string) {
 	expr, unknown := buildFieldZod(f, tsStructs, raw, colliding)
+	if f.Nullable {
+		expr += ".nullable()"
+	}
 	if !f.Required {
 		// Emit .optional() only, not .optional().nullable(). Go's
 		// non-pointer types never emit null on the wire, so accepting null
@@ -110,6 +113,10 @@ func scalarZodBase(tsType string, tsStructs, raw map[string]StructDefinition, co
 	case "Record<string, unknown>":
 		return "z.record(z.string(), z.unknown())"
 	}
+	if strings.HasPrefix(tsType, "Record<string, ") && strings.HasSuffix(tsType, ">") {
+		valueType := strings.TrimSuffix(strings.TrimPrefix(tsType, "Record<string, "), ">")
+		return fmt.Sprintf("z.record(z.string(), %s)", scalarZodBase(valueType, tsStructs, raw, colliding))
+	}
 	if sDef, ok := findStructByAny(tsType, tsStructs, raw); ok {
 		return fmt.Sprintf("z.lazy(() => %sSchema)", targetTSName(sDef, colliding))
 	}
@@ -118,6 +125,13 @@ func scalarZodBase(tsType string, tsStructs, raw map[string]StructDefinition, co
 
 func buildScalarZod(f FieldContract, tsStructs, raw map[string]StructDefinition, colliding map[string]bool) (string, []string) {
 	rules := parseValidatorRules(f.Validation)
+	allowEmpty := false
+	for _, rule := range rules {
+		if rule.Name == "omitempty" {
+			allowEmpty = true
+			break
+		}
+	}
 
 	if f.Type == "string" || f.Type == "IsoDateString" {
 		for _, r := range rules {
@@ -127,7 +141,22 @@ func buildScalarZod(f FieldContract, tsStructs, raw map[string]StructDefinition,
 				for i, v := range vals {
 					quoted[i] = fmt.Sprintf("%q", v)
 				}
+				if allowEmpty {
+					return fmt.Sprintf(`z.string().refine(v => v === "" || [%s].includes(v))`, strings.Join(quoted, ", ")), nil
+				}
 				return fmt.Sprintf("z.enum([%s])", strings.Join(quoted, ", ")), nil
+			}
+			if r.Name == "oneofci" {
+				vals := splitSpaceValues(r.Value)
+				quoted := make([]string, len(vals))
+				for i, v := range vals {
+					quoted[i] = fmt.Sprintf("%q", v)
+				}
+				condition := fmt.Sprintf("[%s].some(choice => choice.toLowerCase() === v.toLowerCase())", strings.Join(quoted, ", "))
+				if allowEmpty {
+					condition = `v === "" || ` + condition
+				}
+				return fmt.Sprintf("z.string().refine(v => %s)", condition), nil
 			}
 		}
 	}
@@ -154,6 +183,12 @@ func buildScalarZod(f FieldContract, tsStructs, raw map[string]StructDefinition,
 			continue
 		}
 
+		if f.Type == "number" && allowEmpty {
+			if applied, ok := applyOptionalZeroNumberRule(base, r); ok {
+				base = applied
+				continue
+			}
+		}
 		applied, ok := applyScalarRule(base, r, f.Type)
 		if !ok {
 			unknown = append(unknown, r.Name)
@@ -170,6 +205,18 @@ func applyScalarRule(base string, r validatorRule, tsType string) (string, bool)
 	}
 	if tsType == "number" {
 		return applyNumberRule(base, r)
+	}
+	if tsType == "boolean" {
+		switch r.Name {
+		case "eq":
+			if r.Value == "true" || r.Value == "false" {
+				return base + fmt.Sprintf(".refine(v => v === %s)", r.Value), true
+			}
+		case "ne":
+			if r.Value == "true" || r.Value == "false" {
+				return base + fmt.Sprintf(".refine(v => v !== %s)", r.Value), true
+			}
+		}
 	}
 	return "", false
 }
@@ -299,6 +346,30 @@ func applyNumberRule(base string, r validatorRule) (string, bool) {
 		return base + ".negative()", true
 	case "multipleof":
 		return base + fmt.Sprintf(".multipleOf(%s)", r.Value), true
+	}
+	return "", false
+}
+
+func applyOptionalZeroNumberRule(base string, r validatorRule) (string, bool) {
+	switch r.Name {
+	case "min", "gte":
+		return base + fmt.Sprintf(".refine(v => v === 0 || v >= %s)", r.Value), true
+	case "max", "lte":
+		return base + fmt.Sprintf(".refine(v => v === 0 || v <= %s)", r.Value), true
+	case "gt":
+		return base + fmt.Sprintf(".refine(v => v === 0 || v > %s)", r.Value), true
+	case "lt":
+		return base + fmt.Sprintf(".refine(v => v === 0 || v < %s)", r.Value), true
+	case "eq":
+		return base + fmt.Sprintf(".refine(v => v === 0 || v === %s)", r.Value), true
+	case "ne":
+		return base + fmt.Sprintf(".refine(v => v === 0 || v !== %s)", r.Value), true
+	case "positive":
+		return base + ".refine(v => v === 0 || v > 0)", true
+	case "negative":
+		return base + ".refine(v => v === 0 || v < 0)", true
+	case "multipleof":
+		return base + fmt.Sprintf(".refine(v => v === 0 || v %% %s === 0)", r.Value), true
 	}
 	return "", false
 }

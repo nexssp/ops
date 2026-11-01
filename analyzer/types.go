@@ -35,10 +35,16 @@ func (t TypeRef) String() string {
 }
 
 type ActionContract struct {
-	Name             string             `json:"name"`
-	Description      string             `json:"description"`
-	ReqTypeName      string             `json:"req_type"`
-	ResTypeName      string             `json:"res_type"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	ReqTypeName string `json:"req_type"`
+	ResTypeName string `json:"res_type"`
+	// FlowSchemaDriven marks an NFlow route whose HTTP boundary is declared
+	// with request/response-schema modifiers. Missing modifiers remain absent
+	// instead of being inferred from the called Go action.
+	FlowSchemaDriven bool               `json:"flow_schema_driven,omitempty"`
+	ReqSchemaName    string             `json:"request_schema,omitempty"`
+	ResSchemaName    string             `json:"response_schema,omitempty"`
 	ReqType          TypeRef            `json:"req_type_ref,omitempty"`
 	ResType          TypeRef            `json:"res_type_ref,omitempty"`
 	Method           string             `json:"method"`
@@ -97,12 +103,14 @@ type ActionContract struct {
 }
 
 type FieldContract struct {
-	Name       string `json:"name"`
-	Key        string `json:"key"`
-	Type       string `json:"type"`
-	Required   bool   `json:"required"`
-	Validation string `json:"validation,omitempty"`
-	RawTags    string `json:"raw_tags,omitempty"`
+	Name          string `json:"name"`
+	Key           string `json:"key"`
+	Type          string `json:"type"`
+	Required      bool   `json:"required"`
+	Nullable      bool   `json:"nullable,omitempty"`
+	JSONOmitEmpty bool   `json:"-"`
+	Validation    string `json:"validation,omitempty"`
+	RawTags       string `json:"raw_tags,omitempty"`
 
 	// Multipart marks a field that must be transported as a file part in
 	// a multipart/form-data request. Set by the analyzer when a []byte field
@@ -156,6 +164,7 @@ type Report struct {
 	ScannedFiles   int                         `json:"scanned_files"`
 	Actions        []ActionContract            `json:"actions"`
 	FlowHTTPRoutes []FlowHTTPRoute             `json:"flow_http_routes,omitempty"`
+	FlowSchemas    map[string]StructDefinition `json:"flow_schemas,omitempty"`
 	Structs        map[string]StructDefinition `json:"structs"`
 	Enums          map[string]EnumDefinition   `json:"enums,omitempty"`
 	Diagnostics    []Diagnostic                `json:"diagnostics"`

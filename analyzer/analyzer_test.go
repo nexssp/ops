@@ -43,12 +43,12 @@ func RegisterActions() action.AnyAction {
 		t.Fatal(err)
 	}
 
-	// Package 2: jumalu
-	jumaluDir := filepath.Join(tmp, "jumalu")
-	if err := os.MkdirAll(jumaluDir, 0o755); err != nil {
+	// Package 2: service
+	serviceDir := filepath.Join(tmp, "service")
+	if err := os.MkdirAll(serviceDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	jumaluCode := `package jumalu
+	serviceCode := `package service
 
 import (
 	"github.com/nexssp/kernel/action"
@@ -65,12 +65,12 @@ type DockerExecResponse struct {
 }
 
 func RegisterActions() action.AnyAction {
-	return action.New[DockerExecRecord, DockerExecResponse]("jumalu.exec", nil).
-		Route(thttp.POST("/api/jumalu/exec")).
+	return action.New[DockerExecRecord, DockerExecResponse]("service.exec", nil).
+		Route(thttp.POST("/api/service/exec")).
 		Build()
 }
 `
-	if err := os.WriteFile(filepath.Join(jumaluDir, "types.go"), []byte(jumaluCode), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(serviceDir, "types.go"), []byte(serviceCode), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,12 +92,12 @@ func RegisterActions() action.AnyAction {
 		t.Errorf("ai.DockerExecRecord fields corrupted: %+v", aiStruct.Fields)
 	}
 
-	jumaluStruct, ok := report.Structs["jumalu.DockerExecRecord"]
+	serviceStruct, ok := report.Structs["service.DockerExecRecord"]
 	if !ok {
-		t.Fatalf("expected jumalu.DockerExecRecord to be registered")
+		t.Fatalf("expected service.DockerExecRecord to be registered")
 	}
-	if len(jumaluStruct.Fields) != 2 || jumaluStruct.Fields[0].Key != "container_id" {
-		t.Errorf("jumalu.DockerExecRecord fields corrupted: %+v", jumaluStruct.Fields)
+	if len(serviceStruct.Fields) != 2 || serviceStruct.Fields[0].Key != "container_id" {
+		t.Errorf("service.DockerExecRecord fields corrupted: %+v", serviceStruct.Fields)
 	}
 
 	// Verify generated TypeScript SDK prefixing
@@ -107,14 +107,14 @@ func RegisterActions() action.AnyAction {
 	if !strings.Contains(sdk, "export interface AiDockerExecRecord {") {
 		t.Errorf("missing AiDockerExecRecord interface in SDK")
 	}
-	if !strings.Contains(sdk, "export interface JumaluDockerExecRecord {") {
-		t.Errorf("missing JumaluDockerExecRecord interface in SDK")
+	if !strings.Contains(sdk, "export interface ServiceDockerExecRecord {") {
+		t.Errorf("missing ServiceDockerExecRecord interface in SDK")
 	}
 	if !strings.Contains(sdk, "export const AiDockerExecRecordSchema = z.object({") {
 		t.Errorf("missing AiDockerExecRecordSchema in SDK")
 	}
-	if !strings.Contains(sdk, "export const JumaluDockerExecRecordSchema = z.object({") {
-		t.Errorf("missing JumaluDockerExecRecordSchema in SDK")
+	if !strings.Contains(sdk, "export const ServiceDockerExecRecordSchema = z.object({") {
+		t.Errorf("missing ServiceDockerExecRecordSchema in SDK")
 	}
 }
 
@@ -129,7 +129,7 @@ func TestUnknownVsAnyGeneration(t *testing.T) {
 
 // @nexss:expose
 type GenericPayload struct {
-	Metadata any         ` + "`json:\"metadata\"`" + `
+	Metadata any         ` + "`json:\"metadata,omitempty\"`" + `
 	Raw      interface{} ` + "`json:\"raw\"`" + `
 	ErrData  error       ` + "`json:\"err_data\"`" + `
 }

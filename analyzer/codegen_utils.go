@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func computeReachableStructs(report *Report, tsStructs map[string]StructDefinition, colliding map[string]bool) map[string]StructDefinition {
+func computeReachableStructs(report *Report, tsStructs map[string]StructDefinition, colliding map[string]bool, includeExposed bool) map[string]StructDefinition {
 	reachable := make(map[string]StructDefinition)
 	queue := []string{}
 	visited := make(map[string]bool)
@@ -21,12 +21,14 @@ func computeReachableStructs(report *Report, tsStructs map[string]StructDefiniti
 		}
 	}
 
-	for _, sDef := range report.Structs {
-		if sDef.IsIgnored {
-			continue
-		}
-		if sDef.IsExposed {
-			queue = append(queue, sDef.Qualified)
+	if includeExposed {
+		for _, sDef := range report.Structs {
+			if sDef.IsIgnored {
+				continue
+			}
+			if sDef.IsExposed {
+				queue = append(queue, sDef.Qualified)
+			}
 		}
 	}
 
@@ -103,6 +105,25 @@ func resolveActionStruct(act ActionContract, isReq bool, raw map[string]StructDe
 		ref = act.ResType
 		typeName = act.ResTypeName
 	}
+	if act.FlowSchemaDriven {
+		schemaName := act.ReqSchemaName
+		if !isReq {
+			schemaName = act.ResSchemaName
+		}
+		if schemaName == "" {
+			return StructDefinition{}, false
+		}
+		if s, ok := raw["nflow."+schemaName]; ok {
+			return s, true
+		}
+		targetName := flowSchemaTSName(schemaName)
+		for _, s := range raw {
+			if s.Package == "nflow" && s.Name == targetName {
+				return s, true
+			}
+		}
+		return StructDefinition{}, false
+	}
 
 	if ref.Package != "" && ref.Name != "" {
 		if s, ok := raw[ref.Package+"."+ref.Name]; ok {
@@ -135,6 +156,19 @@ func resolveActionStruct(act ActionContract, isReq bool, raw map[string]StructDe
 }
 
 func resolveActionTypeTS(act ActionContract, isReq bool, tsStructs, raw map[string]StructDefinition, colliding map[string]bool) string {
+	if act.FlowSchemaDriven {
+		schemaName := act.ReqSchemaName
+		if !isReq {
+			schemaName = act.ResSchemaName
+		}
+		if schemaName == "" {
+			return "void"
+		}
+		if sDef, ok := resolveActionStruct(act, isReq, raw); ok {
+			return targetTSName(sDef, colliding)
+		}
+		return "void"
+	}
 	if sDef, ok := resolveActionStruct(act, isReq, raw); ok {
 		return targetTSName(sDef, colliding)
 	}
