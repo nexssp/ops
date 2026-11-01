@@ -1,0 +1,8 @@
+{
+  "incident_id": "INC-2048",
+  "service": " Payments-API ",
+  "summary": "Checkout failures increased after the latest deployment",
+  "affected_users": 480,
+  "customer_visible": true,
+  "data_integrity_risk": false
+}

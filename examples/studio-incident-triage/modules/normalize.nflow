@@ -1,0 +1,10 @@
+@pipeline incident
+  {
+    incident_id: upper(trim(.incident_id)),
+    service: lower(trim(.service)),
+    summary: trim(.summary),
+    affected_users: .affected_users,
+    customer_visible: .customer_visible,
+    data_integrity_risk: .data_integrity_risk
+  }
+@end

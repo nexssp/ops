@@ -1,0 +1,43 @@
+@pipeline assess
+  {
+    incident_id: .incident_id,
+    service: .service,
+    summary: .summary,
+    affected_users: .affected_users,
+    customer_visible: .customer_visible,
+    data_integrity_risk: .data_integrity_risk,
+    priority: (.data_integrity_risk || .affected_users >= 1000) ? "SEV-1" : ((.customer_visible && .affected_users >= 100) ? "SEV-2" : (.customer_visible ? "SEV-3" : "SEV-4")),
+    priority_reason: .data_integrity_risk ? "Potential data-integrity risk" : (.affected_users >= 1000 ? "Large reported user impact" : ((.customer_visible && .affected_users >= 100) ? "Customer-visible impact affecting at least 100 users" : (.customer_visible ? "Customer-visible impact with fewer than 100 users reported" : "No customer impact reported")))
+  }
+@end
+
+@pipeline prepare_response
+  {
+    incident: {
+      id: .incident_id,
+      service: .service,
+      summary: .summary
+    },
+    assessment: {
+      priority: .priority,
+      reason: .priority_reason,
+      affected_users: .affected_users,
+      customer_visible: .customer_visible,
+      data_integrity_risk: .data_integrity_risk
+    },
+    response: {
+      lead_role: .priority == "SEV-1" ? "incident commander" : (.priority == "SEV-2" ? "on-call lead" : "service owner"),
+      acknowledge_within_minutes: .priority == "SEV-1" ? 5 : (.priority == "SEV-2" ? 15 : (.priority == "SEV-3" ? 30 : 60)),
+      page_on_call: .priority == "SEV-1" || .priority == "SEV-2"
+    },
+    recommended_actions: [
+      .data_integrity_risk ? "Assess and contain the data-integrity risk before resuming writes" : "Compare error and latency metrics with the latest deploy",
+      (.priority == "SEV-1" || .priority == "SEV-2") ? "Have the on-call lead coordinate mitigation and a timeline" : "Assign a service owner and confirm the impact scope",
+      .customer_visible ? "Prepare a concise customer-status update" : "Record an internal status note and next checkpoint"
+    ],
+    automation: {
+      external_changes_made: false,
+      note: "Recommendations only. No page, ticket, message, or configuration change was sent."
+    }
+  }
+@end

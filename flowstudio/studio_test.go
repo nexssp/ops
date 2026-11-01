@@ -156,3 +156,174 @@ func TestNewRequiresExistingNFlowFile(t *testing.T) {
 		t.Fatalf("New error = %v, want an .nflow restriction", err)
 	}
 }
+
+func TestIncludedFilesAppearInTreeAndCanBeOpenedAndSaved(t *testing.T) {
+	root := t.TempDir()
+	entry := filepath.Join(root, "app.nflow")
+	first := filepath.Join(root, "modules", "normalize.nflow")
+	second := filepath.Join(root, "modules", "respond.nflow")
+	if err := os.MkdirAll(filepath.Dir(first), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	entrySource := "@include \"modules/normalize.nflow\" AS normalize\n@include \"modules/respond.nflow\" AS respond\n"
+	moduleSource := "@pipeline normalize\n{} -> runtime.noop\n@end\n"
+	if err := os.WriteFile(entry, []byte(entrySource), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte(moduleSource), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	studio, err := newStudio(entry, func(context.Context, []string) (commandOutput, error) {
+		return commandOutput{}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded := studioRequest(t, studio, http.MethodGet, "/api/project", "")
+	var project struct {
+		Tree       studioFile `json:"tree"`
+		IndexError string     `json:"index_error"`
+	}
+	if err := json.Unmarshal(loaded.Body.Bytes(), &project); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Code != http.StatusOK || project.IndexError != "" {
+		t.Fatalf("project status=%d index_error=%q body=%s", loaded.Code, project.IndexError, loaded.Body.String())
+	}
+	if len(project.Tree.Children) != 2 || project.Tree.Children[0].Path != "modules/normalize.nflow" || project.Tree.Children[1].Path != "modules/respond.nflow" {
+		t.Fatalf("include tree = %#v", project.Tree)
+	}
+	opened := studioRequest(t, studio, http.MethodGet, "/api/file?path=modules%2Fnormalize.nflow", "")
+	if opened.Code != http.StatusOK || !strings.Contains(opened.Body.String(), `"file":"modules/normalize.nflow"`) || !strings.Contains(opened.Body.String(), "runtime.noop") {
+		t.Fatalf("included file open status=%d body=%s", opened.Code, opened.Body.String())
+	}
+	const edited = "@pipeline normalize\n{ value: 2 } -> runtime.noop\n@end\n"
+	body, err := json.Marshal(map[string]string{"path": "modules/normalize.nflow", "source": edited})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := studioRequest(t, studio, http.MethodPost, "/api/save", string(body))
+	actual, err := os.ReadFile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Code != http.StatusOK || string(actual) != edited {
+		t.Fatalf("included file save status=%d body=%s source=%q", saved.Code, saved.Body.String(), actual)
+	}
+}
+
+func TestExplainReturnsFlowPlanForEntrypointAndIncludedModules(t *testing.T) {
+	root := t.TempDir()
+	entry := filepath.Join(root, "app.nflow")
+	child := filepath.Join(root, "included.nflow")
+	if err := os.WriteFile(entry, []byte("@include \"included.nflow\" AS included\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(child, []byte("@pipeline prepare\n{} -> runtime.noop\n@end\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var calls [][]string
+	studio, err := newStudio(entry, func(_ context.Context, args []string) (commandOutput, error) {
+		calls = append(calls, append([]string(nil), args...))
+		return commandOutput{Stdout: `{"path":"plan.nflow","pipelines":[]}`}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := studioRequest(t, studio, http.MethodGet, "/api/explain", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("Explain status=%d body=%s", response.Code, response.Body.String())
+	}
+	var result struct {
+		Entrypoint string       `json:"entrypoint"`
+		Map        studioFile   `json:"map"`
+		Modules    []modulePlan `json:"modules"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Entrypoint != "app.nflow" || len(result.Map.Children) != 1 || len(result.Modules) != 2 {
+		t.Fatalf("Explain response = %#v", result)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("Flow Explain calls = %#v, want entrypoint and included module", calls)
+	}
+	for _, call := range calls {
+		if len(call) != 5 || call[0] != "flow" || call[1] != "explain" || call[2] != "--plan" || call[3] != "--json" {
+			t.Fatalf("Flow Explain command = %#v", call)
+		}
+	}
+}
+
+func TestMissingAndEscapingIncludesAreReportedWithoutExposingFiles(t *testing.T) {
+	t.Run("missing include", func(t *testing.T) {
+		root := t.TempDir()
+		entry := filepath.Join(root, "app.nflow")
+		if err := os.WriteFile(entry, []byte("@include \"missing.nflow\" AS missing\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		studio, err := newStudio(entry, func(context.Context, []string) (commandOutput, error) {
+			t.Fatal("Explain must not run when the Flow include index has an error")
+			return commandOutput{}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		project := studioRequest(t, studio, http.MethodGet, "/api/project", "")
+		if project.Code != http.StatusOK || !strings.Contains(project.Body.String(), "missing.nflow") {
+			t.Fatalf("missing include was not visible in project: status=%d body=%s", project.Code, project.Body.String())
+		}
+		explained := studioRequest(t, studio, http.MethodGet, "/api/explain", "")
+		if explained.Code != http.StatusUnprocessableEntity || !strings.Contains(explained.Body.String(), "missing.nflow") {
+			t.Fatalf("missing include Explain status=%d body=%s", explained.Code, explained.Body.String())
+		}
+	})
+
+	t.Run("traversal and symlink escape", func(t *testing.T) {
+		parent := t.TempDir()
+		root := filepath.Join(parent, "project")
+		if err := os.Mkdir(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		entry := filepath.Join(root, "app.nflow")
+		outside := filepath.Join(parent, "secret.nflow")
+		if err := os.WriteFile(entry, []byte("@include \"linked.nflow\" AS linked\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		const secret = "do not expose this file\n"
+		if err := os.WriteFile(outside, []byte(secret), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(root, "linked.nflow")); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		studio, err := newStudio(entry, func(context.Context, []string) (commandOutput, error) {
+			return commandOutput{}, nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		project := studioRequest(t, studio, http.MethodGet, "/api/project", "")
+		if !strings.Contains(project.Body.String(), "outside the Flow Studio project") || strings.Contains(project.Body.String(), secret) {
+			t.Fatalf("symlink escape was not safely reported: %s", project.Body.String())
+		}
+		traversal := studioRequest(t, studio, http.MethodGet, "/api/file?path=..%2Fsecret.nflow", "")
+		if traversal.Code != http.StatusBadRequest {
+			t.Fatalf("traversal open status=%d body=%s", traversal.Code, traversal.Body.String())
+		}
+		body, err := json.Marshal(map[string]string{"path": "../secret.nflow", "source": "overwritten"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		traversalSave := studioRequest(t, studio, http.MethodPost, "/api/save", string(body))
+		actual, err := os.ReadFile(outside)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if traversalSave.Code != http.StatusBadRequest || string(actual) != secret {
+			t.Fatalf("traversal save status=%d outside source=%q", traversalSave.Code, actual)
+		}
+	})
+}

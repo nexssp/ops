@@ -15,8 +15,8 @@ var _commit_callbacks, _discard_callbacks, _pending, _blocking_pending, _deferre
   if (relList && relList.supports && relList.supports("modulepreload")) {
     return;
   }
-  for (const link of document.querySelectorAll('link[rel="modulepreload"]')) {
-    processPreload(link);
+  for (const link2 of document.querySelectorAll('link[rel="modulepreload"]')) {
+    processPreload(link2);
   }
   new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -29,22 +29,22 @@ var _commit_callbacks, _discard_callbacks, _pending, _blocking_pending, _deferre
       }
     }
   }).observe(document, { childList: true, subtree: true });
-  function getFetchOpts(link) {
+  function getFetchOpts(link2) {
     const fetchOpts = {};
-    if (link.integrity) fetchOpts.integrity = link.integrity;
-    if (link.referrerPolicy) fetchOpts.referrerPolicy = link.referrerPolicy;
-    if (link.crossOrigin === "use-credentials")
+    if (link2.integrity) fetchOpts.integrity = link2.integrity;
+    if (link2.referrerPolicy) fetchOpts.referrerPolicy = link2.referrerPolicy;
+    if (link2.crossOrigin === "use-credentials")
       fetchOpts.credentials = "include";
-    else if (link.crossOrigin === "anonymous") fetchOpts.credentials = "omit";
+    else if (link2.crossOrigin === "anonymous") fetchOpts.credentials = "omit";
     else fetchOpts.credentials = "same-origin";
     return fetchOpts;
   }
-  function processPreload(link) {
-    if (link.ep)
+  function processPreload(link2) {
+    if (link2.ep)
       return;
-    link.ep = true;
-    const fetchOpts = getFetchOpts(link);
-    fetch(link.href, fetchOpts);
+    link2.ep = true;
+    const fetchOpts = getFetchOpts(link2);
+    fetch(link2.href, fetchOpts);
   }
 })();
 const DEV = false;
@@ -100,11 +100,13 @@ const EAGER_EFFECT = 1 << 17;
 const HEAD_EFFECT = 1 << 18;
 const EFFECT_PRESERVED = 1 << 19;
 const USER_EFFECT = 1 << 20;
+const EFFECT_OFFSCREEN = 1 << 25;
 const REACTION_IS_UPDATING = 1 << 21;
 const ASYNC = 1 << 22;
 const ERROR_VALUE = 1 << 23;
 const STATE_SYMBOL = Symbol("$state");
 const COMPONENT_SYMBOL = Symbol("component");
+const LEGACY_PROPS = Symbol("legacy props");
 const ATTRIBUTES_CACHE = Symbol("attributes");
 const CLASS_CACHE = Symbol("class");
 const STYLE_CACHE = Symbol("style");
@@ -117,6 +119,17 @@ const STALE_REACTION = new class StaleReactionError extends Error {
     __publicField(this, "message", "The reaction that called `getAbortSignal()` was re-run or destroyed");
   }
 }();
+const EACH_ITEM_REACTIVE = 1;
+const EACH_INDEX_REACTIVE = 1 << 1;
+const EACH_IS_CONTROLLED = 1 << 2;
+const EACH_IS_ANIMATED = 1 << 3;
+const EACH_ITEM_IMMUTABLE = 1 << 4;
+const PROPS_IS_IMMUTABLE = 1;
+const PROPS_IS_RUNES = 1 << 1;
+const PROPS_IS_UPDATED = 1 << 2;
+const PROPS_IS_BINDABLE = 1 << 3;
+const PROPS_IS_LAZY_INITIAL = 1 << 4;
+const TEMPLATE_FRAGMENT = 1;
 const TEMPLATE_USE_IMPORT_NODE = 1 << 1;
 const HYDRATION_ERROR = {};
 const UNINITIALIZED = Symbol("uninitialized");
@@ -151,6 +164,11 @@ function async_derived_orphan() {
     throw new Error(`https://svelte.dev/e/async_derived_orphan`);
   }
 }
+function each_key_duplicate(a, b, value) {
+  {
+    throw new Error(`https://svelte.dev/e/each_key_duplicate`);
+  }
+}
 function effect_in_teardown(rune) {
   {
     throw new Error(`https://svelte.dev/e/effect_in_teardown`);
@@ -169,6 +187,11 @@ function effect_orphan(rune) {
 function effect_update_depth_exceeded() {
   {
     throw new Error(`https://svelte.dev/e/effect_update_depth_exceeded`);
+  }
+}
+function props_invalid_value(key) {
+  {
+    throw new Error(`https://svelte.dev/e/props_invalid_value`);
   }
 }
 function state_descriptors_fixed() {
@@ -1615,15 +1638,15 @@ function proxy(value) {
     /** @type {any} */
     value,
     {
-      defineProperty(_, prop, descriptor) {
+      defineProperty(_, prop2, descriptor) {
         if (!("value" in descriptor) || descriptor.configurable === false || descriptor.enumerable === false || descriptor.writable === false) {
           state_descriptors_fixed();
         }
-        var s = sources.get(prop);
+        var s = sources.get(prop2);
         if (s === void 0) {
           with_parent(() => {
             var s2 = /* @__PURE__ */ state(descriptor.value);
-            sources.set(prop, s2);
+            sources.set(prop2, s2);
             return s2;
           });
         } else {
@@ -1631,12 +1654,12 @@ function proxy(value) {
         }
         return true;
       },
-      deleteProperty(target, prop) {
-        var s = sources.get(prop);
+      deleteProperty(target, prop2) {
+        var s = sources.get(prop2);
         if (s === void 0) {
-          if (prop in target) {
+          if (prop2 in target) {
             const s2 = with_parent(() => /* @__PURE__ */ state(UNINITIALIZED));
-            sources.set(prop, s2);
+            sources.set(prop2, s2);
             increment(version);
           }
         } else {
@@ -1645,32 +1668,32 @@ function proxy(value) {
         }
         return true;
       },
-      get(target, prop, receiver) {
+      get(target, prop2, receiver) {
         var _a2;
-        if (prop === STATE_SYMBOL) {
+        if (prop2 === STATE_SYMBOL) {
           return value;
         }
-        var s = sources.get(prop);
-        var exists = prop in target;
-        if (s === void 0 && (!exists || ((_a2 = get_descriptor(target, prop)) == null ? void 0 : _a2.writable))) {
+        var s = sources.get(prop2);
+        var exists = prop2 in target;
+        if (s === void 0 && (!exists || ((_a2 = get_descriptor(target, prop2)) == null ? void 0 : _a2.writable))) {
           s = with_parent(() => {
-            var p = proxy(exists ? target[prop] : UNINITIALIZED);
+            var p = proxy(exists ? target[prop2] : UNINITIALIZED);
             var s2 = /* @__PURE__ */ state(p);
             return s2;
           });
-          sources.set(prop, s);
+          sources.set(prop2, s);
         }
         if (s !== void 0) {
           var v = get(s);
           return v === UNINITIALIZED ? void 0 : v;
         }
-        return Reflect.get(target, prop, receiver);
+        return Reflect.get(target, prop2, receiver);
       },
-      getOwnPropertyDescriptor(target, prop) {
+      getOwnPropertyDescriptor(target, prop2) {
         var _a2;
-        (_a2 = this.has) == null ? void 0 : _a2.call(this, target, prop);
-        var descriptor = Reflect.getOwnPropertyDescriptor(target, prop);
-        var s = sources.get(prop);
+        (_a2 = this.has) == null ? void 0 : _a2.call(this, target, prop2);
+        var descriptor = Reflect.getOwnPropertyDescriptor(target, prop2);
+        var s = sources.get(prop2);
         if (s !== void 0) {
           var value2 = get(s);
           if (value2 === UNINITIALIZED) {
@@ -1689,21 +1712,21 @@ function proxy(value) {
         }
         return descriptor;
       },
-      has(target, prop) {
+      has(target, prop2) {
         var _a2;
-        if (prop === STATE_SYMBOL) {
+        if (prop2 === STATE_SYMBOL) {
           return true;
         }
-        var s = sources.get(prop);
-        var has = s !== void 0 && s.v !== UNINITIALIZED || Reflect.has(target, prop);
-        if (s !== void 0 || (active_effect !== null || active_reaction !== null) && (!has || ((_a2 = get_descriptor(target, prop)) == null ? void 0 : _a2.writable))) {
+        var s = sources.get(prop2);
+        var has = s !== void 0 && s.v !== UNINITIALIZED || Reflect.has(target, prop2);
+        if (s !== void 0 || (active_effect !== null || active_reaction !== null) && (!has || ((_a2 = get_descriptor(target, prop2)) == null ? void 0 : _a2.writable))) {
           if (s === void 0) {
             s = with_parent(() => {
-              var p = has ? proxy(target[prop]) : UNINITIALIZED;
+              var p = has ? proxy(target[prop2]) : UNINITIALIZED;
               var s2 = /* @__PURE__ */ state(p);
               return s2;
             });
-            sources.set(prop, s);
+            sources.set(prop2, s);
           }
           var value2 = get(s);
           if (value2 === UNINITIALIZED) {
@@ -1712,11 +1735,11 @@ function proxy(value) {
         }
         return has;
       },
-      set(target, prop, value2, receiver) {
+      set(target, prop2, value2, receiver) {
         var _a2;
-        var s = sources.get(prop);
-        var has = prop in target;
-        if (is_proxied_array && prop === "length") {
+        var s = sources.get(prop2);
+        var has = prop2 in target;
+        if (is_proxied_array && prop2 === "length") {
           for (var i = value2; i < /** @type {Source<number>} */
           s.v; i += 1) {
             var other_s = sources.get(i + "");
@@ -1729,27 +1752,27 @@ function proxy(value) {
           }
         }
         if (s === void 0) {
-          if (!has || ((_a2 = get_descriptor(target, prop)) == null ? void 0 : _a2.writable)) {
+          if (!has || ((_a2 = get_descriptor(target, prop2)) == null ? void 0 : _a2.writable)) {
             s = with_parent(() => /* @__PURE__ */ state(void 0));
             set(s, proxy(value2));
-            sources.set(prop, s);
+            sources.set(prop2, s);
           }
         } else {
           has = s.v !== UNINITIALIZED;
           var p = with_parent(() => proxy(value2));
           set(s, p);
         }
-        var descriptor = Reflect.getOwnPropertyDescriptor(target, prop);
+        var descriptor = Reflect.getOwnPropertyDescriptor(target, prop2);
         if (descriptor == null ? void 0 : descriptor.set) {
           descriptor.set.call(receiver, value2);
         }
         if (!has) {
-          if (is_proxied_array && typeof prop === "string") {
+          if (is_proxied_array && typeof prop2 === "string") {
             var ls = (
               /** @type {Source<number>} */
               sources.get("length")
             );
-            var n = Number(prop);
+            var n = Number(prop2);
             if (Number.isInteger(n) && n >= ls.v) {
               set(ls, n + 1);
             }
@@ -1826,6 +1849,13 @@ function child(node, is_text) {
     return /* @__PURE__ */ get_first_child(node);
   }
 }
+function first_child(node, is_text = false) {
+  {
+    var first = /* @__PURE__ */ get_first_child(node);
+    if (first instanceof Comment && first.data === "") return /* @__PURE__ */ get_next_sibling(first);
+    return first;
+  }
+}
 function only_child(node, is_text = false) {
   {
     return /* @__PURE__ */ get_first_child(node);
@@ -1840,6 +1870,9 @@ function sibling(node, count = 1, is_text = false) {
   {
     return next_sibling;
   }
+}
+function clear_text_content(node) {
+  node.textContent = "";
 }
 function should_defer_append() {
   return false;
@@ -2659,9 +2692,9 @@ function deep_read_state(value) {
     deep_read(value);
   } else if (!Array.isArray(value)) {
     for (let key in value) {
-      const prop = value[key];
-      if (typeof prop === "object" && prop && STATE_SYMBOL in prop) {
-        deep_read(prop);
+      const prop2 = value[key];
+      if (typeof prop2 === "object" && prop2 && STATE_SYMBOL in prop2) {
+        deep_read(prop2);
       }
     }
   }
@@ -2863,20 +2896,31 @@ function assign_nodes(start, end) {
 }
 // @__NO_SIDE_EFFECTS__
 function from_html(content, flags2) {
+  var is_fragment = (flags2 & TEMPLATE_FRAGMENT) !== 0;
   var use_import_node = (flags2 & TEMPLATE_USE_IMPORT_NODE) !== 0;
   var node;
   var has_start = !content.startsWith("<!>");
   return () => {
     if (node === void 0) {
       node = create_fragment_from_html(has_start ? content : "<!>" + content);
-      node = /** @type {TemplateNode} */
+      if (!is_fragment) node = /** @type {TemplateNode} */
       /* @__PURE__ */ get_first_child(node);
     }
     var clone = (
       /** @type {TemplateNode} */
       use_import_node || is_firefox ? document.importNode(node, true) : node.cloneNode(true)
     );
-    {
+    if (is_fragment) {
+      var start = (
+        /** @type {TemplateNode} */
+        /* @__PURE__ */ get_first_child(clone)
+      );
+      var end = (
+        /** @type {TemplateNode} */
+        clone.lastChild
+      );
+      assign_nodes(start, end);
+    } else {
       assign_nodes(clone, clone);
     }
     return clone;
@@ -2888,6 +2932,14 @@ function text(value = "") {
     assign_nodes(t, t);
     return t;
   }
+}
+function comment() {
+  var frag = document.createDocumentFragment();
+  var start = document.createComment("");
+  var anchor = create_text();
+  frag.append(start, anchor);
+  assign_nodes(start, anchor);
+  return frag;
 }
 function append(anchor, dom) {
   if (anchor === null) {
@@ -3638,6 +3690,422 @@ function if_block(node, fn, elseif = false) {
     }
   }, flags2);
 }
+function pause_effects(state2, to_destroy, controlled_anchor) {
+  var transitions = [];
+  var length = to_destroy.length;
+  var group;
+  var remaining = to_destroy.length;
+  for (var i = 0; i < length; i++) {
+    let effect2 = to_destroy[i];
+    pause_effect(
+      effect2,
+      () => {
+        if (group) {
+          group.pending.delete(effect2);
+          group.done.add(effect2);
+          if (group.pending.size === 0) {
+            var groups = (
+              /** @type {Set<EachOutroGroup>} */
+              state2.outrogroups
+            );
+            destroy_effects(state2, array_from(group.done));
+            groups.delete(group);
+            if (groups.size === 0) {
+              state2.outrogroups = null;
+            }
+          }
+        } else {
+          remaining -= 1;
+        }
+      },
+      false
+    );
+  }
+  if (remaining === 0) {
+    var fast_path = transitions.length === 0 && controlled_anchor !== null && state2.pending.size === 0;
+    if (fast_path) {
+      var anchor = (
+        /** @type {Element} */
+        controlled_anchor
+      );
+      var parent_node = (
+        /** @type {Element} */
+        anchor.parentNode
+      );
+      clear_text_content(parent_node);
+      parent_node.append(anchor);
+      state2.items.clear();
+    }
+    destroy_effects(state2, to_destroy, !fast_path);
+  } else {
+    group = {
+      pending: new Set(to_destroy),
+      done: /* @__PURE__ */ new Set()
+    };
+    (state2.outrogroups ?? (state2.outrogroups = /* @__PURE__ */ new Set())).add(group);
+  }
+}
+function destroy_effects(state2, to_destroy, remove_dom = true) {
+  var preserved_effects;
+  if (state2.pending.size > 0) {
+    preserved_effects = /* @__PURE__ */ new Set();
+    for (const keys of state2.pending.values()) {
+      for (const key of keys) {
+        preserved_effects.add(
+          /** @type {EachItem} */
+          state2.items.get(key).e
+        );
+      }
+    }
+  }
+  for (var i = 0; i < to_destroy.length; i++) {
+    var e = to_destroy[i];
+    if (preserved_effects == null ? void 0 : preserved_effects.has(e)) {
+      e.f |= EFFECT_OFFSCREEN;
+      const fragment = document.createDocumentFragment();
+      move_effect(e, fragment);
+    } else {
+      destroy_effect(to_destroy[i], remove_dom);
+    }
+  }
+}
+var offscreen_anchor;
+function each(node, flags2, get_collection, get_key, render_fn2, fallback_fn = null) {
+  var anchor = node;
+  var items = /* @__PURE__ */ new Map();
+  var is_controlled = (flags2 & EACH_IS_CONTROLLED) !== 0;
+  if (is_controlled) {
+    var parent_node = (
+      /** @type {Element} */
+      node
+    );
+    anchor = parent_node.appendChild(create_text());
+  }
+  var fallback = null;
+  var each_array = /* @__PURE__ */ derived_safe_equal(() => {
+    var collection = get_collection();
+    return (
+      /** @type {V[]} */
+      is_array(collection) ? collection : collection == null ? [] : array_from(collection)
+    );
+  });
+  var pending = /* @__PURE__ */ new Map();
+  var first_run = true;
+  function commit(batch) {
+    if ((state2.effect.f & DESTROYED) !== 0) {
+      return;
+    }
+    state2.pending.delete(batch);
+    var array = get(each_array);
+    state2.fallback = fallback;
+    reconcile(state2, array, anchor, flags2, get_key);
+    if (fallback !== null) {
+      if (array.length === 0) {
+        if ((fallback.f & EFFECT_OFFSCREEN) === 0) {
+          resume_effect(fallback);
+        } else {
+          fallback.f ^= EFFECT_OFFSCREEN;
+          move(fallback, null, anchor);
+        }
+      } else {
+        pause_effect(fallback, () => {
+          fallback = null;
+        });
+      }
+    }
+  }
+  function discard(batch) {
+    state2.pending.delete(batch);
+  }
+  var effect2 = block(() => {
+    var array = (
+      /** @type {V[]} */
+      get(each_array)
+    );
+    var length = array.length;
+    var keys = /* @__PURE__ */ new Set();
+    var batch = (
+      /** @type {Batch} */
+      current_batch
+    );
+    var defer = should_defer_append();
+    for (var index = 0; index < length; index += 1) {
+      var value = array[index];
+      var key = get_key(value, index);
+      var item = first_run ? null : items.get(key);
+      if (item) {
+        if (item.v) internal_set(item.v, value);
+        if (item.i) internal_set(item.i, index);
+        if (defer) {
+          batch.unskip_effect(item.e);
+        }
+      } else {
+        item = create_item(
+          items,
+          first_run ? anchor : offscreen_anchor ?? (offscreen_anchor = create_text()),
+          value,
+          key,
+          index,
+          render_fn2,
+          flags2,
+          get_collection
+        );
+        if (!first_run) {
+          item.e.f |= EFFECT_OFFSCREEN;
+        }
+        items.set(key, item);
+      }
+      keys.add(key);
+    }
+    if (length === 0 && fallback_fn && !fallback) {
+      if (first_run) {
+        fallback = branch(() => fallback_fn(anchor));
+      } else {
+        fallback = branch(() => fallback_fn(offscreen_anchor ?? (offscreen_anchor = create_text())));
+        fallback.f |= EFFECT_OFFSCREEN;
+      }
+    }
+    if (length > keys.size) {
+      {
+        each_key_duplicate();
+      }
+    }
+    if (!first_run) {
+      pending.set(batch, keys);
+      if (defer) {
+        for (const [key2, item2] of items) {
+          if (!keys.has(key2)) {
+            batch.skip_effect(item2.e);
+          }
+        }
+        batch.oncommit(commit);
+        batch.ondiscard(discard);
+      } else {
+        commit(batch);
+      }
+    }
+    get(each_array);
+  });
+  var state2 = { effect: effect2, items, pending, outrogroups: null, fallback };
+  first_run = false;
+}
+function skip_to_branch(effect2) {
+  while (effect2 !== null && (effect2.f & BRANCH_EFFECT) === 0) {
+    effect2 = effect2.next;
+  }
+  return effect2;
+}
+function reconcile(state2, array, anchor, flags2, get_key) {
+  var _a2, _b2, _c, _d, _e, _f, _g, _h, _i;
+  var is_animated = (flags2 & EACH_IS_ANIMATED) !== 0;
+  var length = array.length;
+  var items = state2.items;
+  var current = skip_to_branch(state2.effect.first);
+  var seen2;
+  var prev = null;
+  var to_animate;
+  var matched = [];
+  var stashed = [];
+  var value;
+  var key;
+  var effect2;
+  var i;
+  if (is_animated) {
+    for (i = 0; i < length; i += 1) {
+      value = array[i];
+      key = get_key(value, i);
+      effect2 = /** @type {EachItem} */
+      items.get(key).e;
+      if ((effect2.f & EFFECT_OFFSCREEN) === 0) {
+        (_b2 = (_a2 = effect2.nodes) == null ? void 0 : _a2.a) == null ? void 0 : _b2.measure();
+        (to_animate ?? (to_animate = /* @__PURE__ */ new Set())).add(effect2);
+      }
+    }
+  }
+  for (i = 0; i < length; i += 1) {
+    value = array[i];
+    key = get_key(value, i);
+    effect2 = /** @type {EachItem} */
+    items.get(key).e;
+    if (state2.outrogroups !== null) {
+      for (const group of state2.outrogroups) {
+        group.pending.delete(effect2);
+        group.done.delete(effect2);
+      }
+    }
+    if ((effect2.f & INERT) !== 0) {
+      resume_effect(effect2);
+      if (is_animated) {
+        (_d = (_c = effect2.nodes) == null ? void 0 : _c.a) == null ? void 0 : _d.unfix();
+        (to_animate ?? (to_animate = /* @__PURE__ */ new Set())).delete(effect2);
+      }
+    }
+    if ((effect2.f & EFFECT_OFFSCREEN) !== 0) {
+      effect2.f ^= EFFECT_OFFSCREEN;
+      if (effect2 === current) {
+        move(effect2, null, anchor);
+      } else {
+        var next = prev ? prev.next : current;
+        if (effect2 === state2.effect.last) {
+          state2.effect.last = effect2.prev;
+        }
+        if (effect2.prev) effect2.prev.next = effect2.next;
+        if (effect2.next) effect2.next.prev = effect2.prev;
+        link(state2, prev, effect2);
+        link(state2, effect2, next);
+        move(effect2, next, anchor);
+        prev = effect2;
+        matched = [];
+        stashed = [];
+        current = skip_to_branch(prev.next);
+        continue;
+      }
+    }
+    if (effect2 !== current) {
+      if (seen2 !== void 0 && seen2.has(effect2)) {
+        if (matched.length < stashed.length) {
+          var start = stashed[0];
+          var j;
+          prev = start.prev;
+          var a = matched[0];
+          var b = matched[matched.length - 1];
+          for (j = 0; j < matched.length; j += 1) {
+            move(matched[j], start, anchor);
+          }
+          for (j = 0; j < stashed.length; j += 1) {
+            seen2.delete(stashed[j]);
+          }
+          link(state2, a.prev, b.next);
+          link(state2, prev, a);
+          link(state2, b, start);
+          current = start;
+          prev = b;
+          i -= 1;
+          matched = [];
+          stashed = [];
+        } else {
+          seen2.delete(effect2);
+          move(effect2, current, anchor);
+          link(state2, effect2.prev, effect2.next);
+          link(state2, effect2, prev === null ? state2.effect.first : prev.next);
+          link(state2, prev, effect2);
+          prev = effect2;
+        }
+        continue;
+      }
+      matched = [];
+      stashed = [];
+      while (current !== null && current !== effect2) {
+        (seen2 ?? (seen2 = /* @__PURE__ */ new Set())).add(current);
+        stashed.push(current);
+        current = skip_to_branch(current.next);
+      }
+      if (current === null) {
+        continue;
+      }
+    }
+    if ((effect2.f & EFFECT_OFFSCREEN) === 0) {
+      matched.push(effect2);
+    }
+    prev = effect2;
+    current = skip_to_branch(effect2.next);
+  }
+  if (state2.outrogroups !== null) {
+    for (const group of state2.outrogroups) {
+      if (group.pending.size === 0) {
+        destroy_effects(state2, array_from(group.done));
+        (_e = state2.outrogroups) == null ? void 0 : _e.delete(group);
+      }
+    }
+    if (state2.outrogroups.size === 0) {
+      state2.outrogroups = null;
+    }
+  }
+  if (current !== null || seen2 !== void 0) {
+    var to_destroy = [];
+    if (seen2 !== void 0) {
+      for (effect2 of seen2) {
+        if ((effect2.f & INERT) === 0) {
+          to_destroy.push(effect2);
+        }
+      }
+    }
+    while (current !== null) {
+      if ((current.f & INERT) === 0 && current !== state2.fallback) {
+        to_destroy.push(current);
+      }
+      current = skip_to_branch(current.next);
+    }
+    var destroy_length = to_destroy.length;
+    if (destroy_length > 0) {
+      var controlled_anchor = (flags2 & EACH_IS_CONTROLLED) !== 0 && length === 0 ? anchor : null;
+      if (is_animated) {
+        for (i = 0; i < destroy_length; i += 1) {
+          (_g = (_f = to_destroy[i].nodes) == null ? void 0 : _f.a) == null ? void 0 : _g.measure();
+        }
+        for (i = 0; i < destroy_length; i += 1) {
+          (_i = (_h = to_destroy[i].nodes) == null ? void 0 : _h.a) == null ? void 0 : _i.fix();
+        }
+      }
+      pause_effects(state2, to_destroy, controlled_anchor);
+    }
+  }
+  if (is_animated) {
+    queue_micro_task(() => {
+      var _a3, _b3;
+      if (to_animate === void 0) return;
+      for (effect2 of to_animate) {
+        (_b3 = (_a3 = effect2.nodes) == null ? void 0 : _a3.a) == null ? void 0 : _b3.apply();
+      }
+    });
+  }
+}
+function create_item(items, anchor, value, key, index, render_fn2, flags2, get_collection) {
+  var v = (flags2 & EACH_ITEM_REACTIVE) !== 0 ? (flags2 & EACH_ITEM_IMMUTABLE) === 0 ? /* @__PURE__ */ mutable_source(value, false, false) : source(value) : null;
+  var i = (flags2 & EACH_INDEX_REACTIVE) !== 0 ? source(index) : null;
+  return {
+    v,
+    i,
+    e: branch(() => {
+      render_fn2(anchor, v ?? value, i ?? index, get_collection);
+      return () => {
+        items.delete(key);
+      };
+    })
+  };
+}
+function move(effect2, next, anchor) {
+  if (!effect2.nodes) return;
+  var node = effect2.nodes.start;
+  var end = effect2.nodes.end;
+  var dest = next && (next.f & EFFECT_OFFSCREEN) === 0 ? (
+    /** @type {EffectNodes} */
+    next.nodes.start
+  ) : anchor;
+  while (node !== null) {
+    var next_node = (
+      /** @type {TemplateNode} */
+      /* @__PURE__ */ get_next_sibling(node)
+    );
+    dest.before(node);
+    if (node === end) {
+      return;
+    }
+    node = next_node;
+  }
+}
+function link(state2, prev, next) {
+  if (prev === null) {
+    state2.effect.first = next;
+  } else {
+    prev.next = next;
+  }
+  if (next === null) {
+    state2.effect.last = prev;
+  } else {
+    next.prev = prev;
+  }
+}
 function head(hash, render_fn2) {
   var anchor;
   {
@@ -3660,7 +4128,7 @@ function head(hash, render_fn2) {
 }
 const whitespace = [..." 	\n\r\f \v\uFEFF"];
 function to_class(value, hash, directives) {
-  var classname = "" + value;
+  var classname = value == null ? "" : "" + value;
   if (directives) {
     for (var key of Object.keys(directives)) {
       if (directives[key]) {
@@ -3876,6 +4344,144 @@ function observe_all(context, props) {
   }
   props();
 }
+let is_store_binding = false;
+function capture_store_binding(fn) {
+  var previous_is_store_binding = is_store_binding;
+  try {
+    is_store_binding = false;
+    return [fn(), is_store_binding];
+  } finally {
+    is_store_binding = previous_is_store_binding;
+  }
+}
+function prop(props, key, flags2, fallback) {
+  var _a2;
+  var runes = !legacy_mode_flag || (flags2 & PROPS_IS_RUNES) !== 0;
+  var bindable = (flags2 & PROPS_IS_BINDABLE) !== 0;
+  var lazy = (flags2 & PROPS_IS_LAZY_INITIAL) !== 0;
+  var fallback_value = (
+    /** @type {V} */
+    fallback
+  );
+  var fallback_dirty = true;
+  var fallback_signal = (
+    /** @type {Derived<V> | undefined} */
+    void 0
+  );
+  var get_fallback = () => {
+    if (lazy && runes) {
+      fallback_signal ?? (fallback_signal = /* @__PURE__ */ derived(
+        /** @type {() => V} */
+        fallback
+      ));
+      return get(fallback_signal);
+    }
+    if (fallback_dirty) {
+      fallback_dirty = false;
+      fallback_value = lazy ? untrack(
+        /** @type {() => V} */
+        fallback
+      ) : (
+        /** @type {V} */
+        fallback
+      );
+    }
+    return fallback_value;
+  };
+  let setter;
+  if (bindable) {
+    var is_entry_props = STATE_SYMBOL in props || LEGACY_PROPS in props;
+    setter = ((_a2 = get_descriptor(props, key)) == null ? void 0 : _a2.set) ?? (is_entry_props && key in props ? (v) => props[key] = v : void 0);
+  }
+  var initial_value;
+  var is_store_sub = false;
+  if (bindable) {
+    [initial_value, is_store_sub] = capture_store_binding(() => (
+      /** @type {V} */
+      props[key]
+    ));
+  } else {
+    initial_value = /** @type {V} */
+    props[key];
+  }
+  if (initial_value === void 0 && fallback !== void 0) {
+    initial_value = get_fallback();
+    if (setter) {
+      if (runes) props_invalid_value();
+      setter(initial_value);
+    }
+  }
+  var getter;
+  if (runes) {
+    getter = () => {
+      var value = (
+        /** @type {V} */
+        props[key]
+      );
+      if (value === void 0) return get_fallback();
+      fallback_dirty = true;
+      return value;
+    };
+  } else {
+    getter = () => {
+      var value = (
+        /** @type {V} */
+        props[key]
+      );
+      if (value !== void 0) {
+        fallback_value = /** @type {V} */
+        void 0;
+      }
+      return value === void 0 ? fallback_value : value;
+    };
+  }
+  if (runes && (flags2 & PROPS_IS_UPDATED) === 0) {
+    return getter;
+  }
+  if (setter) {
+    var legacy_parent = props.$$legacy;
+    return (
+      /** @type {() => V} */
+      (function(value, mutation) {
+        if (arguments.length > 0) {
+          if (!runes || !mutation || legacy_parent || is_store_sub) {
+            setter(mutation ? getter() : value);
+          }
+          return value;
+        }
+        return getter();
+      })
+    );
+  }
+  var overridden = false;
+  var d = ((flags2 & PROPS_IS_IMMUTABLE) !== 0 ? derived : derived_safe_equal)(() => {
+    overridden = false;
+    return getter();
+  });
+  if (bindable) get(d);
+  var parent_effect = (
+    /** @type {Effect} */
+    active_effect
+  );
+  return (
+    /** @type {() => V} */
+    (function(value, mutation) {
+      if (arguments.length > 0) {
+        const new_value = mutation ? get(d) : runes && bindable ? proxy(value) : value;
+        set(d, new_value);
+        overridden = true;
+        if (fallback_value !== void 0) {
+          fallback_value = new_value;
+        }
+        return value;
+      }
+      if (is_destroying_effect && overridden || (parent_effect.f & DESTROYED) !== 0) {
+        return d.v;
+      }
+      return get(d);
+    })
+  );
+}
 function onMount(fn) {
   if (component_context === null) {
     lifecycle_outside_component();
@@ -3904,27 +4510,111 @@ if (typeof window !== "undefined") {
   ((_b = window.__svelte ?? (window.__svelte = {})).v ?? (_b.v = /* @__PURE__ */ new Set())).add(PUBLIC_VERSION);
 }
 enable_legacy_mode_flag();
+var root$1 = /* @__PURE__ */ from_html(`<small class="svelte-uqxnhd"> </small>`);
+var root_1$1 = /* @__PURE__ */ from_html(`<li class="svelte-uqxnhd"><button type="button"><span class="file-icon svelte-uqxnhd"> </span> <span class="file-name svelte-uqxnhd"> </span> <!></button> <!></li>`);
+var root_2$1 = /* @__PURE__ */ from_html(`<ul class="tree svelte-uqxnhd"></ul>`);
+function FileTree($$anchor, $$props) {
+  push($$props, false);
+  let nodes = prop($$props, "nodes", 24, () => []);
+  let active = prop($$props, "active", 8, "");
+  let onSelect = prop($$props, "onSelect", 8, () => {
+  });
+  let interactive = prop($$props, "interactive", 8, true);
+  init();
+  var ul = root_2$1();
+  each(ul, 5, nodes, (node) => node.path + ":" + node.namespace, ($$anchor2, node) => {
+    var li = root_1$1();
+    var button = child(li);
+    let classes;
+    var span = child(button);
+    var text2 = only_child(span, true);
+    var span_1 = sibling(span, 2);
+    var text_1 = only_child(span_1, true);
+    var node_1 = sibling(span_1, 2);
+    {
+      var consequent = ($$anchor3) => {
+        var small = root$1();
+        var text_2 = only_child(small, true);
+        template_effect(() => set_text(text_2, (get(node), untrack(() => get(node).namespace))));
+        append($$anchor3, small);
+      };
+      if_block(node_1, ($$render) => {
+        if (get(node), untrack(() => get(node).namespace)) $$render(consequent);
+      });
+    }
+    var node_2 = sibling(button, 2);
+    {
+      var consequent_1 = ($$anchor3) => {
+        var fragment = comment();
+        var node_3 = first_child(fragment);
+        FileTree(node_3, {
+          get nodes() {
+            return get(node), untrack(() => get(node).children);
+          },
+          get active() {
+            return active();
+          },
+          get onSelect() {
+            return onSelect();
+          },
+          get interactive() {
+            return interactive();
+          }
+        });
+        append($$anchor3, fragment);
+      };
+      if_block(node_2, ($$render) => {
+        if (get(node), untrack(() => {
+          var _a2;
+          return (_a2 = get(node).children) == null ? void 0 : _a2.length;
+        })) $$render(consequent_1);
+      });
+    }
+    template_effect(() => {
+      button.disabled = !interactive();
+      set_attribute(button, "title", (get(node), untrack(() => get(node).namespace ? `@include AS ${get(node).namespace}` : get(node).path)));
+      classes = set_class(button, 1, "svelte-uqxnhd", null, classes, { selected: get(node).path === active() });
+      set_text(text2, (get(node), untrack(() => {
+        var _a2;
+        return ((_a2 = get(node).children) == null ? void 0 : _a2.length) ? "▾" : "·";
+      })));
+      set_text(text_1, (get(node), untrack(() => get(node).name)));
+    });
+    event("click", button, () => interactive() && onSelect()(get(node).path));
+    append($$anchor2, li);
+  });
+  append($$anchor, ul);
+  pop();
+}
 var root = /* @__PURE__ */ from_html(`<meta name="viewport" content="width=device-width, initial-scale=1"/>`);
 var root_1 = /* @__PURE__ */ from_html(`<div class="file-label svelte-1n46o8q"> </div>`);
 var root_2 = /* @__PURE__ */ from_html(`<div class="notice error svelte-1n46o8q" role="alert"><strong>Studio action failed</strong><span class="svelte-1n46o8q"> </span></div>`);
-var root_3 = /* @__PURE__ */ from_html(`<div class="notice success svelte-1n46o8q" role="status"> <!></div>`);
-var root_4 = /* @__PURE__ */ from_html(`<div class="loading svelte-1n46o8q">Loading Flow file…</div>`);
-var root_5 = /* @__PURE__ */ from_html(`<div class="workspace svelte-1n46o8q"><section class="panel editor-panel svelte-1n46o8q"><div class="panel-heading svelte-1n46o8q"><div><strong class="svelte-1n46o8q">Flow source</strong><span class="svelte-1n46o8q">Edit the saved .nflow file</span></div><span> </span></div> <textarea aria-label="Flow source editor" spellcheck="false" class="svelte-1n46o8q"></textarea></section> <section class="panel result-panel svelte-1n46o8q"><div class="panel-heading svelte-1n46o8q"><div><strong class="svelte-1n46o8q">Output</strong><span class="svelte-1n46o8q">Validation diagnostics and run results</span></div></div> <pre class="output svelte-1n46o8q"> </pre> <label class="payload-label svelte-1n46o8q" for="payload">Run payload (JSON object)</label> <textarea id="payload" class="payload svelte-1n46o8q" spellcheck="false"></textarea> <p class="security-note svelte-1n46o8q">Run executes this flow on your machine with the same permissions as nexssp.</p></section></div>`);
-var root_6 = /* @__PURE__ */ from_html(`<div class="shell svelte-1n46o8q"><header class="topbar svelte-1n46o8q"><div class="brand svelte-1n46o8q"><span class="mark svelte-1n46o8q">F</span><div><strong class="svelte-1n46o8q">Flow Studio</strong><small class="svelte-1n46o8q">Local .nflow editor</small></div></div> <!> <div class="toolbar svelte-1n46o8q"><button class="secondary svelte-1n46o8q" type="button"> </button> <button class="secondary svelte-1n46o8q" type="button"> </button> <button class="primary svelte-1n46o8q" type="button"> </button></div></header> <main class="svelte-1n46o8q"><!> <!> <!></main> <footer class="svelte-1n46o8q">Flow/NFlow remains the source of truth · Studio is available only on this computer</footer></div>`);
+var root_3 = /* @__PURE__ */ from_html(`<div class="notice warning svelte-1n46o8q" role="status"><strong>Include index warning</strong><span class="svelte-1n46o8q"> </span><span class="svelte-1n46o8q">The entrypoint stays editable so you can fix the include.</span></div>`);
+var root_4 = /* @__PURE__ */ from_html(`<div class="notice success svelte-1n46o8q" role="status"> <!></div>`);
+var root_5 = /* @__PURE__ */ from_html(`<div class="loading svelte-1n46o8q">Loading Flow project…</div>`);
+var root_6 = /* @__PURE__ */ from_html(`<section class="plan-card svelte-1n46o8q"><h2 class="svelte-1n46o8q"> </h2> <pre class="output svelte-1n46o8q"> </pre></section>`);
+var root_7 = /* @__PURE__ */ from_html(`<div class="panel-heading svelte-1n46o8q"><div><strong class="svelte-1n46o8q">Explain</strong><span class="svelte-1n46o8q">Flow's native AST-derived plans; action argument values are omitted</span></div></div> <div class="plan-list svelte-1n46o8q"><p class="entrypoint-label svelte-1n46o8q">Entrypoint: <code class="svelte-1n46o8q"> </code></p> <!></div>`, 1);
+var root_8 = /* @__PURE__ */ from_html(`<div class="panel-heading svelte-1n46o8q"><div><strong class="svelte-1n46o8q">Output</strong><span class="svelte-1n46o8q">Validation diagnostics and run results</span></div></div> <pre class="output svelte-1n46o8q"> </pre> <label class="payload-label svelte-1n46o8q" for="payload">Run payload (JSON object)</label> <textarea id="payload" class="payload svelte-1n46o8q" spellcheck="false"></textarea> <p class="security-note svelte-1n46o8q">Run executes this flow on your machine with the same permissions as nexssp.</p>`, 1);
+var root_9 = /* @__PURE__ */ from_html(`<div class="workspace svelte-1n46o8q"><aside class="panel tree-panel svelte-1n46o8q"><div class="panel-heading svelte-1n46o8q"><div><strong class="svelte-1n46o8q"> </strong><span class="svelte-1n46o8q">Flow compiler include index</span></div></div> <nav aria-label="Flow project files" class="svelte-1n46o8q"><!></nav></aside> <section class="panel editor-panel svelte-1n46o8q"><div class="panel-heading svelte-1n46o8q"><div><strong class="svelte-1n46o8q">Flow source</strong><span class="svelte-1n46o8q">Edit the saved .nflow file</span></div><span> </span></div> <textarea aria-label="Flow source editor" spellcheck="false" class="svelte-1n46o8q"></textarea></section> <section class="panel result-panel svelte-1n46o8q"><!></section></div>`);
+var root_10 = /* @__PURE__ */ from_html(`<div class="shell svelte-1n46o8q"><header class="topbar svelte-1n46o8q"><div class="brand svelte-1n46o8q"><span class="mark svelte-1n46o8q">F</span><div><strong class="svelte-1n46o8q">Flow Studio</strong><small class="svelte-1n46o8q">Local .nflow editor</small></div></div> <!> <div class="toolbar svelte-1n46o8q"><button class="secondary svelte-1n46o8q" type="button"> </button> <button class="secondary svelte-1n46o8q" type="button"> </button> <button class="secondary svelte-1n46o8q" type="button"> </button> <button class="primary svelte-1n46o8q" type="button"> </button></div></header> <main class="svelte-1n46o8q"><!> <!> <!> <!></main> <footer class="svelte-1n46o8q">Flow/NFlow remains the source of truth · Studio is available only on this computer</footer></div>`);
 function App($$anchor, $$props) {
   push($$props, false);
   const isDirty = /* @__PURE__ */ mutable_source();
   let project = /* @__PURE__ */ mutable_source(null);
+  let activeFile = /* @__PURE__ */ mutable_source("");
   let source2 = /* @__PURE__ */ mutable_source("");
   let savedSource = /* @__PURE__ */ mutable_source("");
   let payload = /* @__PURE__ */ mutable_source("{}");
   let output = /* @__PURE__ */ mutable_source("");
+  let explanation = /* @__PURE__ */ mutable_source(null);
+  let view = /* @__PURE__ */ mutable_source("run");
   let errorMessage = /* @__PURE__ */ mutable_source("");
   let statusMessage = /* @__PURE__ */ mutable_source("");
   let busy = /* @__PURE__ */ mutable_source("");
   onMount(async () => {
     try {
       set(project, await request("/api/project"));
+      set(activeFile, get(project).file);
       set(source2, get(project).source);
       set(savedSource, get(project).source);
       set(statusMessage, "Ready");
@@ -3959,15 +4649,36 @@ function App($$anchor, $$props) {
   async function save() {
     await request("/api/save", {
       method: "POST",
-      body: JSON.stringify({ source: get(source2) })
+      body: JSON.stringify({ path: get(activeFile), source: get(source2) })
     });
     set(savedSource, get(source2));
+    set(project, await request("/api/project"));
     set(statusMessage, "Saved");
+  }
+  async function openFile(path) {
+    if (!get(project) || path === get(activeFile) || get(busy)) return;
+    set(errorMessage, "");
+    set(statusMessage, "");
+    set(busy, "open");
+    try {
+      if (get(isDirty)) await save();
+      const result = await request(`/api/file?path=${encodeURIComponent(path)}`);
+      set(activeFile, result.file);
+      set(source2, result.source);
+      set(savedSource, result.source);
+      set(view, "run");
+      set(statusMessage, `Opened ${get(activeFile)}`);
+    } catch (error) {
+      set(errorMessage, error.message || "Could not open the Flow file.");
+    } finally {
+      set(busy, "");
+    }
   }
   async function perform(action) {
     set(errorMessage, "");
     set(statusMessage, "");
     set(output, "");
+    set(view, "run");
     set(busy, action);
     try {
       if (get(isDirty)) await save();
@@ -3994,6 +4705,22 @@ function App($$anchor, $$props) {
       set(busy, "");
     }
   }
+  async function showExplain() {
+    set(errorMessage, "");
+    set(statusMessage, "");
+    set(busy, "explain");
+    try {
+      if (get(isDirty)) await save();
+      set(explanation, await request("/api/explain"));
+      set(view, "explain");
+      set(statusMessage, "Flow plans loaded");
+    } catch (error) {
+      set(errorMessage, error.message || "Could not explain the Flow project.");
+      set(output, error.output ? pretty(error.output) : "");
+    } finally {
+      set(busy, "");
+    }
+  }
   async function saveOnly() {
     set(errorMessage, "");
     set(statusMessage, "");
@@ -4007,6 +4734,7 @@ function App($$anchor, $$props) {
     }
   }
   function pretty(value) {
+    if (typeof value !== "string") return JSON.stringify(value, null, 2);
     try {
       return JSON.stringify(JSON.parse(value), null, 2);
     } catch {
@@ -4018,7 +4746,7 @@ function App($$anchor, $$props) {
   });
   legacy_pre_effect_reset();
   init();
-  var div = root_6();
+  var div = root_10();
   head("1n46o8q", ($$anchor2) => {
     var meta = root();
     effect(() => {
@@ -4033,8 +4761,8 @@ function App($$anchor, $$props) {
       var div_1 = root_1();
       var text2 = only_child(div_1, true);
       template_effect(() => {
-        set_attribute(div_1, "title", (get(project), untrack(() => get(project).file)));
-        set_text(text2, (get(project), untrack(() => get(project).file)));
+        set_attribute(div_1, "title", get(activeFile));
+        set_text(text2, get(activeFile));
       });
       append($$anchor2, div_1);
     };
@@ -4049,14 +4777,16 @@ function App($$anchor, $$props) {
   var text_2 = only_child(button_1, true);
   var button_2 = sibling(button_1, 2);
   var text_3 = only_child(button_2, true);
+  var button_3 = sibling(button_2, 2);
+  var text_4 = only_child(button_3, true);
   var main = sibling(header, 2);
   var node_1 = child(main);
   {
     var consequent_1 = ($$anchor2) => {
       var div_3 = root_2();
       var span = sibling(child(div_3));
-      var text_4 = only_child(span, true);
-      template_effect(() => set_text(text_4, get(errorMessage)));
+      var text_5 = only_child(span, true);
+      template_effect(() => set_text(text_5, get(errorMessage)));
       append($$anchor2, div_3);
     };
     if_block(node_1, ($$render) => {
@@ -4065,56 +4795,138 @@ function App($$anchor, $$props) {
   }
   var node_2 = sibling(node_1, 2);
   {
-    var consequent_3 = ($$anchor2) => {
+    var consequent_2 = ($$anchor2) => {
       var div_4 = root_3();
-      var text_5 = child(div_4);
-      var node_3 = sibling(text_5);
-      {
-        var consequent_2 = ($$anchor3) => {
-          var text_6 = text("· Unsaved changes");
-          append($$anchor3, text_6);
-        };
-        if_block(node_3, ($$render) => {
-          if (get(isDirty)) $$render(consequent_2);
-        });
-      }
-      template_effect(() => set_text(text_5, get(statusMessage)));
+      var span_1 = sibling(child(div_4));
+      var text_6 = only_child(span_1, true);
+      template_effect(() => set_text(text_6, (get(project), untrack(() => get(project).index_error))));
       append($$anchor2, div_4);
     };
     if_block(node_2, ($$render) => {
-      if (get(statusMessage)) $$render(consequent_3);
+      if (get(project), untrack(() => {
+        var _a2;
+        return (_a2 = get(project)) == null ? void 0 : _a2.index_error;
+      })) $$render(consequent_2);
     });
   }
-  var node_4 = sibling(node_2, 2);
+  var node_3 = sibling(node_2, 2);
   {
     var consequent_4 = ($$anchor2) => {
       var div_5 = root_4();
+      var text_7 = child(div_5);
+      var node_4 = sibling(text_7);
+      {
+        var consequent_3 = ($$anchor3) => {
+          var text_8 = text("· Unsaved changes");
+          append($$anchor3, text_8);
+        };
+        if_block(node_4, ($$render) => {
+          if (get(isDirty)) $$render(consequent_3);
+        });
+      }
+      template_effect(() => set_text(text_7, get(statusMessage)));
       append($$anchor2, div_5);
     };
+    if_block(node_3, ($$render) => {
+      if (get(statusMessage)) $$render(consequent_4);
+    });
+  }
+  var node_5 = sibling(node_3, 2);
+  {
     var consequent_5 = ($$anchor2) => {
       var div_6 = root_5();
-      var section = child(div_6);
-      var div_7 = child(section);
-      var span_1 = sibling(child(div_7));
-      let classes;
-      var text_7 = only_child(span_1, true);
-      var textarea = sibling(div_7, 2);
-      var section_1 = sibling(section, 2);
-      var pre = sibling(child(section_1), 2);
-      var text_8 = only_child(pre, true);
-      var textarea_1 = sibling(pre, 4);
-      template_effect(() => {
-        classes = set_class(span_1, 1, "save-state svelte-1n46o8q", null, classes, { dirty: get(isDirty) });
-        set_text(text_7, get(isDirty) ? "Unsaved" : "Saved");
-        set_text(text_8, get(output) || "Use Validate to check the Flow file, or Run flow to execute it locally.");
-      });
-      bind_value(textarea, () => get(source2), ($$value) => set(source2, $$value));
-      bind_value(textarea_1, () => get(payload), ($$value) => set(payload, $$value));
       append($$anchor2, div_6);
     };
-    if_block(node_4, ($$render) => {
-      if (!get(project) && !get(errorMessage)) $$render(consequent_4);
-      else if (get(project)) $$render(consequent_5, 1);
+    var consequent_7 = ($$anchor2) => {
+      var div_7 = root_9();
+      var aside = child(div_7);
+      var div_8 = child(aside);
+      var div_9 = child(div_8);
+      var strong = child(div_9);
+      var text_9 = only_child(strong, true);
+      var nav = sibling(div_8, 2);
+      var node_6 = child(nav);
+      {
+        let $0 = /* @__PURE__ */ derived_safe_equal(() => (get(view), get(explanation), get(project), untrack(() => [
+          get(view) === "explain" && get(explanation) ? get(explanation).map : get(project).tree
+        ])));
+        FileTree(node_6, {
+          get nodes() {
+            return get($0);
+          },
+          get active() {
+            return get(activeFile);
+          },
+          onSelect: openFile
+        });
+      }
+      var section = sibling(aside, 2);
+      var div_10 = child(section);
+      var span_2 = sibling(child(div_10));
+      let classes;
+      var text_10 = only_child(span_2, true);
+      var textarea = sibling(div_10, 2);
+      var section_1 = sibling(section, 2);
+      var node_7 = child(section_1);
+      {
+        var consequent_6 = ($$anchor3) => {
+          var fragment = root_7();
+          var div_11 = sibling(first_child(fragment), 2);
+          var p = child(div_11);
+          var code = sibling(child(p));
+          var text_11 = only_child(code, true);
+          var node_8 = sibling(p, 2);
+          each(
+            node_8,
+            1,
+            () => (get(explanation), untrack(() => get(explanation).modules)),
+            (module) => module.file,
+            ($$anchor4, module) => {
+              var section_2 = root_6();
+              var h2 = child(section_2);
+              var text_12 = only_child(h2, true);
+              var pre = sibling(h2, 2);
+              var text_13 = only_child(pre, true);
+              template_effect(
+                ($0) => {
+                  set_text(text_12, (get(module), untrack(() => get(module).file)));
+                  set_text(text_13, $0);
+                },
+                [
+                  () => (get(module), untrack(() => pretty(get(module).plan)))
+                ]
+              );
+              append($$anchor4, section_2);
+            }
+          );
+          template_effect(() => set_text(text_11, (get(explanation), untrack(() => get(explanation).entrypoint))));
+          append($$anchor3, fragment);
+        };
+        var alternate = ($$anchor3) => {
+          var fragment_1 = root_8();
+          var pre_1 = sibling(first_child(fragment_1), 2);
+          var text_14 = only_child(pre_1, true);
+          var textarea_1 = sibling(pre_1, 4);
+          template_effect(() => set_text(text_14, get(output) || "Use Validate to check the Flow project, or Run flow to execute it locally."));
+          bind_value(textarea_1, () => get(payload), ($$value) => set(payload, $$value));
+          append($$anchor3, fragment_1);
+        };
+        if_block(node_7, ($$render) => {
+          if (get(view) === "explain" && get(explanation)) $$render(consequent_6);
+          else $$render(alternate, -1);
+        });
+      }
+      template_effect(() => {
+        set_text(text_9, get(view) === "explain" ? "Entrypoint map" : "Project files");
+        classes = set_class(span_2, 1, "save-state svelte-1n46o8q", null, classes, { dirty: get(isDirty) });
+        set_text(text_10, get(isDirty) ? "Unsaved" : "Saved");
+      });
+      bind_value(textarea, () => get(source2), ($$value) => set(source2, $$value));
+      append($$anchor2, div_7);
+    };
+    if_block(node_5, ($$render) => {
+      if (!get(project) && !get(errorMessage)) $$render(consequent_5);
+      else if (get(project)) $$render(consequent_7, 1);
     });
   }
   template_effect(() => {
@@ -4123,11 +4935,14 @@ function App($$anchor, $$props) {
     button_1.disabled = !get(project) || !!get(busy);
     set_text(text_2, get(busy) === "validate" ? "Checking…" : "Validate");
     button_2.disabled = !get(project) || !!get(busy);
-    set_text(text_3, get(busy) === "run" ? "Running…" : "Run flow");
+    set_text(text_3, get(busy) === "explain" ? "Explaining…" : "Explain");
+    button_3.disabled = !get(project) || !!get(busy);
+    set_text(text_4, get(busy) === "run" ? "Running…" : "Run flow");
   });
   event("click", button, saveOnly);
   event("click", button_1, () => perform("validate"));
-  event("click", button_2, () => perform("run"));
+  event("click", button_2, showExplain);
+  event("click", button_3, () => perform("run"));
   append($$anchor, div);
   pop();
 }

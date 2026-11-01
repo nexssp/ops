@@ -1,0 +1,10 @@
+@description "Create a local incident triage card and first-response checklist from an incident record. This is decision support only; it makes no external changes."
+
+# Example thresholds only. Adjust the rules to match your team's incident policy.
+@include "modules/normalize.nflow" AS normalize
+@include "modules/triage.nflow" AS triage
+
+@assert: result.automation.external_changes_made == false
+@assert: result.response.page_on_call == (result.assessment.priority == "SEV-1" || result.assessment.priority == "SEV-2")
+
+normalize.pipeline.incident -> triage.pipeline.assess -> triage.pipeline.prepare_response

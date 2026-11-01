@@ -51,7 +51,9 @@ nexssp studio ./app.nflow
 
 `nexssp backend` builds its route table from action contracts: it mounts only Go actions and NFlow pipelines that explicitly declare HTTP routes. Use `--exclude-action <name>` or `--exclude-pipeline <name>` to leave a route out. OPS does not invent routes or action implementations; application code supplies the registered actions and their Flow bundles to the generated server.
 
-`nexssp studio [file.nflow]` is a separate local Svelte editor for one Flow file. It saves edits to that `.nflow` file and delegates validation and execution to `nexssp flow`, keeping Flow/NFlow as the source of truth. The server binds only to loopback; running a flow executes it on the local machine with the current user's permissions. `nexssp ui:studio` remains the command that scaffolds the existing app-embedded Studio route.
+`nexssp studio [file.nflow]` is a separate local Svelte editor for a Flow entrypoint and its local `@include` modules. Studio uses Flow's compiler source index for the file tree, delegates Validate and Run to `nexssp flow`, and uses Flow's native explain plan output. The server binds only to loopback; running a flow executes it on the local machine with the current user's permissions. `nexssp ui:studio` remains the command that scaffolds the existing app-embedded Studio route.
+
+For a hands-on example, see the [incident-triage Studio walkthrough](examples/studio-incident-triage/README.md), which uses an entrypoint, two included `.nflow` modules, and a sample JSON payload.
 
 The SDK generator inspects the selected source tree and preserves user-edited extension files by default. Use `nexssp sdk --force` only when you intend to overwrite those generated outputs. The UI scaffold derives its display/package name from the current project directory and does not require a named system's API contract. Generated transport clients do not assume authentication or call token-refresh endpoints; add auth only in the application, with caller-supplied headers or a custom fetcher.
 

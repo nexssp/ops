@@ -20,3 +20,13 @@ func TestRunFlowDoesNotDuplicateNativeBundles(t *testing.T) {
 		t.Fatalf("nexssp Flow execution exited with code %d; Flow's native defaults must be installed exactly once", code)
 	}
 }
+
+func TestRunFlowCLIForwardsExplainPlan(t *testing.T) {
+	flowPath := filepath.Join(t.TempDir(), "explain-smoke.nflow")
+	if err := os.WriteFile(flowPath, []byte("{ value: 7 }\n"), 0o600); err != nil {
+		t.Fatalf("write Flow explain program: %v", err)
+	}
+	if code := runFlowCLI([]string{"explain", "--plan", "--json", flowPath}); code != 0 {
+		t.Fatalf("nexssp Flow Explain exited with code %d", code)
+	}
+}

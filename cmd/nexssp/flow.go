@@ -16,5 +16,10 @@ func handleFlowRun(args []string) {
 }
 
 func runFlowCLI(args []string) int {
-	return flowcli.Run(append([]string{"run"}, args...))
+	command := "run"
+	if len(args) > 0 && args[0] == "explain" {
+		command = "explain"
+		args = args[1:]
+	}
+	return flowcli.Run(append([]string{command}, args...))
 }
