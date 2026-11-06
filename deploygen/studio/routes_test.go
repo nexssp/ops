@@ -5,8 +5,9 @@ import (
 	"testing"
 
 	"github.com/nexssp/kernel/action"
-	"github.com/nexssp/ops/analyzer"
 	"github.com/nexssp/transport/thttp"
+
+	"github.com/nexssp/ops/analyzer"
 )
 
 type routeTestRequest struct {

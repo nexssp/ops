@@ -4,8 +4,8 @@ go 1.27.3
 
 require (
 	github.com/nats-io/nats-server/v2 v2.15.1
-	github.com/nexssp/flow v0.60.0
-	github.com/nexssp/kernel v0.36.0
+	github.com/nexssp/flow v0.70.0
+	github.com/nexssp/kernel v0.37.0
 	github.com/nexssp/observability v0.9.0
 	github.com/nexssp/transport v0.9.1
 )

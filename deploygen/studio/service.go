@@ -15,9 +15,10 @@ import (
 	"github.com/nexssp/kernel/xctx"
 	"github.com/nexssp/kernel/xerr"
 	obs "github.com/nexssp/observability"
-	"github.com/nexssp/ops/analyzer"
 	nxtransport "github.com/nexssp/transport"
 	"github.com/nexssp/transport/thttp"
+
+	"github.com/nexssp/ops/analyzer"
 )
 
 const historyCap = 100

@@ -7,8 +7,9 @@ import (
 
 	"github.com/nexssp/kernel/action"
 	obs "github.com/nexssp/observability"
-	"github.com/nexssp/ops/analyzer"
 	"github.com/nexssp/transport/thttp"
+
+	"github.com/nexssp/ops/analyzer"
 )
 
 type FieldMeta struct {

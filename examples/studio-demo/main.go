@@ -15,9 +15,10 @@ import (
 	"github.com/nexssp/flow/compiler"
 	"github.com/nexssp/kernel/action"
 	"github.com/nexssp/kernel/xerr"
+	"github.com/nexssp/transport/thttp"
+
 	"github.com/nexssp/ops/analyzer"
 	"github.com/nexssp/ops/deploygen/studio"
-	"github.com/nexssp/transport/thttp"
 )
 
 type EchoRequest struct {
