@@ -1,4 +1,4 @@
-package analyzer
+package core
 
 // Verbatim TS runtime support for generated stores. Written once, then never
 // overwritten so users can extend it. Each file's header documents this.

@@ -1,4 +1,4 @@
-package analyzer
+package core
 
 // generateClientFile emits _gen/api/client.ts.
 //

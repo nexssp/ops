@@ -1,10 +1,8 @@
-package analyzer
+package core
 
 import (
 	"go/ast"
-	"go/token"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -25,29 +23,6 @@ func (a *Analyzer) extractActions(f *ast.File) {
 		}
 		return true
 	})
-
-	for _, decl := range f.Decls {
-		genDecl, ok := decl.(*ast.GenDecl)
-		if !ok || genDecl.Tok != token.CONST {
-			continue
-		}
-		for _, spec := range genDecl.Specs {
-			vs, ok := spec.(*ast.ValueSpec)
-			if !ok {
-				continue
-			}
-			for _, val := range vs.Values {
-				lit, ok := val.(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					continue
-				}
-				rawDSL := strings.Trim(lit.Value, "`\"")
-				if strings.Contains(rawDSL, "->") || strings.Contains(rawDSL, ":route=") {
-					a.mergeDSLManifest(rawDSL, filePath)
-				}
-			}
-		}
-	}
 }
 
 func (a *Analyzer) inspectPipeline(rootCall *ast.CallExpr, filePath string, pkgInfo PackageInfo, fileImports map[string]string) ActionContract {
@@ -55,28 +30,13 @@ func (a *Analyzer) inspectPipeline(rootCall *ast.CallExpr, filePath string, pkgI
 	curr := rootCall
 
 	for curr != nil {
-		var sel *ast.SelectorExpr
-		var typeIndices []ast.Expr
-
-		switch fun := curr.Fun.(type) {
-		case *ast.SelectorExpr:
-			sel = fun
-			if idxList, ok := sel.X.(*ast.IndexListExpr); ok {
-				typeIndices = idxList.Indices
-			}
-		case *ast.IndexListExpr:
-			if s, ok := fun.X.(*ast.SelectorExpr); ok {
-				sel = s
-				typeIndices = fun.Indices
-			}
-		}
-
-		if sel == nil {
+		method, receiver, typeIndices := actionCall(curr)
+		if method == "" {
 			break
 		}
 
 		args := curr.Args
-		switch sel.Sel.Name {
+		switch method {
 		case "New":
 			if len(args) > 0 {
 				contract.Name = cleanLiteral(exprToString(args[0]))
@@ -109,9 +69,6 @@ func (a *Analyzer) inspectPipeline(rootCall *ast.CallExpr, filePath string, pkgI
 				contract.ResTypeName = contract.ResType.String()
 			}
 
-			// Blob response: the declared response type is []byte.
-			// The endpoint generator emits a Blob-returning client method
-			// instead of the default JSON method.
 			if contract.ResTypeName == "[]byte" {
 				contract.BlobResponse = true
 			}
@@ -158,9 +115,9 @@ func (a *Analyzer) inspectPipeline(rootCall *ast.CallExpr, filePath string, pkgI
 			}
 		case "Route":
 			for _, arg := range args {
-				for _, b := range detectBindings(arg) {
-					contract.Transports = append(contract.Transports, b)
-					applyLegacyHTTPFields(&contract, b)
+				for _, binding := range detectBindings(arg) {
+					contract.Transports = append(contract.Transports, binding)
+					applyLegacyHTTPFields(&contract, binding)
 				}
 			}
 		case "Public":
@@ -171,11 +128,11 @@ func (a *Analyzer) inspectPipeline(rootCall *ast.CallExpr, filePath string, pkgI
 			contract.Scope = "system"
 		}
 
-		if nextCall, ok := sel.X.(*ast.CallExpr); ok {
-			curr = nextCall
-		} else if idxList, ok := sel.X.(*ast.IndexListExpr); ok {
-			if nextCall, ok := idxList.X.(*ast.CallExpr); ok {
-				curr = nextCall
+		if receiverCall, ok := receiver.(*ast.CallExpr); ok {
+			curr = receiverCall
+		} else if indexList, ok := receiver.(*ast.IndexListExpr); ok {
+			if receiverCall, ok := indexList.X.(*ast.CallExpr); ok {
+				curr = receiverCall
 			} else {
 				break
 			}
@@ -187,35 +144,60 @@ func (a *Analyzer) inspectPipeline(rootCall *ast.CallExpr, filePath string, pkgI
 	if len(contract.Transports) > 0 && !hasHTTPLikeBinding(contract.Transports) {
 		contract.Method = ""
 	}
-
 	return contract
 }
 
-// applyLegacyHTTPFields mirrors HTTP/SSE/Raw bindings onto the legacy
-// Method/Path/Streaming/Raw fields used by the TypeScript SDK generator. Last
-// HTTP-like binding wins, matching the historical single-route semantics.
-func applyLegacyHTTPFields(c *ActionContract, b TransportBinding) {
-	switch b.Kind {
+func actionCall(call *ast.CallExpr) (string, ast.Expr, []ast.Expr) {
+	switch function := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		if indexList, ok := function.X.(*ast.IndexListExpr); ok {
+			return function.Sel.Name, indexList, indexList.Indices
+		}
+		return function.Sel.Name, function.X, nil
+	case *ast.IndexExpr:
+		if selector, ok := function.X.(*ast.SelectorExpr); ok {
+			return selector.Sel.Name, selector.X, []ast.Expr{function.Index}
+		}
+		if identifier, ok := function.X.(*ast.Ident); ok && identifier.Name == "New" {
+			return identifier.Name, nil, []ast.Expr{function.Index}
+		}
+	case *ast.IndexListExpr:
+		if selector, ok := function.X.(*ast.SelectorExpr); ok {
+			return selector.Sel.Name, selector.X, function.Indices
+		}
+		if identifier, ok := function.X.(*ast.Ident); ok && identifier.Name == "New" {
+			return identifier.Name, nil, function.Indices
+		}
+	case *ast.Ident:
+		if function.Name == "New" {
+			return function.Name, nil, nil
+		}
+	}
+	return "", nil, nil
+}
+
+func applyLegacyHTTPFields(contract *ActionContract, binding TransportBinding) {
+	switch binding.Kind {
 	case "http":
-		c.Method = b.Method
-		c.Path = b.Path
-		c.RouteSource = "go"
+		contract.Method = binding.Method
+		contract.Path = binding.Path
+		contract.RouteSource = "go"
 	case "sse":
-		c.Method = "SSE"
-		c.Path = b.Path
-		c.RouteSource = "go"
-		c.Streaming = true
+		contract.Method = "SSE"
+		contract.Path = binding.Path
+		contract.RouteSource = "go"
+		contract.Streaming = true
 	case "raw":
-		c.Method = b.Method
-		c.Path = b.Path
-		c.RouteSource = "go"
-		c.Raw = true
+		contract.Method = binding.Method
+		contract.Path = binding.Path
+		contract.RouteSource = "go"
+		contract.Raw = true
 	}
 }
 
 func hasHTTPLikeBinding(bindings []TransportBinding) bool {
-	for _, b := range bindings {
-		switch b.Kind {
+	for _, binding := range bindings {
+		switch binding.Kind {
 		case "http", "sse", "raw":
 			return true
 		}

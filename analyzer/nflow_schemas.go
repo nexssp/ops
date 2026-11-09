@@ -8,6 +8,8 @@ import (
 
 	"github.com/nexssp/flow/compiler"
 	flowschema "github.com/nexssp/flow/extensions/schema"
+
+	"github.com/nexssp/ops/analyzer/core"
 )
 
 // flowSchemaDefinitions converts the schema values produced by Flow's public
@@ -83,12 +85,7 @@ func flowSchemaRawTags(tags map[string]string) string {
 }
 
 func hasFlowValidatorRule(raw, expected string) bool {
-	for _, rule := range parseValidatorRules(raw) {
-		if rule.Name == expected {
-			return true
-		}
-	}
-	return false
+	return core.HasValidatorRule(raw, expected)
 }
 
 func hasJSONTagOption(raw, expected string) bool {
@@ -183,7 +180,7 @@ func resolveFlowSchemaName(name string, knownSchemas map[string]bool) (string, e
 	return match, nil
 }
 
-func (a *Analyzer) addFlowSchemas(meta map[string]any, file string) map[string]StructDefinition {
+func (a *flowAnalyzer) addFlowSchemas(meta map[string]any, file string) map[string]StructDefinition {
 	definitions, err := flowSchemaDefinitions(meta, file)
 	if err != nil {
 		a.diagnostics = append(a.diagnostics, Diagnostic{
@@ -244,7 +241,7 @@ func sameSchemaDefinition(a, b StructDefinition) bool {
 	return true
 }
 
-func (a *Analyzer) applyFlowPipelineSchemas(contract *ActionContract, modifiers []string, file string, line int) {
+func (a *flowAnalyzer) applyFlowPipelineSchemas(contract *ActionContract, modifiers []string, file string, line int) {
 	var requestName, responseName string
 	requestDeclared, responseDeclared := false, false
 	for _, raw := range modifiers {
@@ -272,6 +269,8 @@ func (a *Analyzer) applyFlowPipelineSchemas(contract *ActionContract, modifiers 
 	// not permission to infer a request or response DTO from a Go action.
 	contract.ReqTypeName, contract.ReqType = "", TypeRef{}
 	contract.ResTypeName, contract.ResType = "", TypeRef{}
+	contract.ReqFields, contract.ResFields = nil, nil
+	contract.Multipart, contract.BlobResponse = false, false
 
 	bind := func(side, name string, declared bool) (string, string, TypeRef) {
 		if !declared {
@@ -292,7 +291,7 @@ func (a *Analyzer) applyFlowPipelineSchemas(contract *ActionContract, modifiers 
 	contract.ResSchemaName, contract.ResTypeName, contract.ResType = bind("response", responseName, responseDeclared)
 }
 
-func (a *Analyzer) findFlowSchema(name string) (string, StructDefinition, error) {
+func (a *flowAnalyzer) findFlowSchema(name string) (string, StructDefinition, error) {
 	if definition, ok := a.flowSchemas[name]; ok {
 		return name, definition, nil
 	}
@@ -311,7 +310,7 @@ func (a *Analyzer) findFlowSchema(name string) (string, StructDefinition, error)
 	return resolved, definition, nil
 }
 
-func (a *Analyzer) addFlowSchemaReferenceError(file string, line int, action, side, name string) {
+func (a *flowAnalyzer) addFlowSchemaReferenceError(file string, line int, action, side, name string) {
 	a.diagnostics = append(a.diagnostics, Diagnostic{
 		Severity: SeverityError,
 		Rule:     "nflow/schema-reference",

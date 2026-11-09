@@ -1,4 +1,4 @@
-package analyzer
+package core
 
 import "strings"
 
@@ -10,7 +10,7 @@ func ValidatePublicAPI(report *Report) []Diagnostic {
 		return nil
 	}
 
-	apiReport := reportWithFlowSchemas(report)
+	apiReport := reportWithRoutedActions(report)
 	colliding, tsStructs := analyzeCollisions(apiReport.Structs)
 	var diagnostics []Diagnostic
 	add := func(action, message, file string) {
@@ -38,14 +38,7 @@ func ValidatePublicAPI(report *Report) []Diagnostic {
 				typeName = action.ReqTypeName
 			}
 
-			// An omitted request on a query route (or an NFlow route with no
-			// request schema) is the intentional argument-free form.
-			if request && ((action.FlowSchemaDriven && action.ReqSchemaName == "") ||
-				(typeName == "" && (action.Method == "GET" || action.Method == "DELETE"))) {
-				continue
-			}
-			if !request && action.FlowSchemaDriven && action.ResSchemaName == "" {
-				add(action.Name, "has no response-schema; add an explicit NFlow response schema", "")
+			if request && typeName == "" && (action.Method == "GET" || action.Method == "DELETE") {
 				continue
 			}
 
@@ -87,15 +80,6 @@ func hasExplicitEmptyContract(action ActionContract, request bool, structs map[s
 	typeName := action.ResTypeName
 	if request {
 		typeName = action.ReqTypeName
-	}
-	if action.FlowSchemaDriven {
-		schemaName := action.ResSchemaName
-		if request {
-			schemaName = action.ReqSchemaName
-		}
-		if schemaName == "" {
-			return request
-		}
 	}
 	if typeName == "struct{}" {
 		return true

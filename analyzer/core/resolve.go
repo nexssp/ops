@@ -1,4 +1,4 @@
-package analyzer
+package core
 
 import "strings"
 
@@ -11,23 +11,39 @@ func (a *Analyzer) FindStruct(nameOrQualified string) (StructDefinition, bool) {
 	return StructDefinition{}, false
 }
 
+// CorrelateActionFields refreshes request and response fields from the report's
+// final generic type references.
+func CorrelateActionFields(report *Report) {
+	if report == nil {
+		return
+	}
+	correlationReport := report
+	for i := range report.Actions {
+		action := &report.Actions[i]
+		action.ReqFields, action.ResFields = nil, nil
+		action.Multipart = false
+		action.BlobResponse = action.ResTypeName == "[]byte"
+		if definition, ok := resolveActionStruct(*action, true, correlationReport.Structs); ok {
+			action.ReqFields = definition.Fields
+			for _, field := range definition.Fields {
+				if field.Multipart {
+					action.Multipart = true
+					break
+				}
+			}
+		}
+		if definition, ok := resolveActionStruct(*action, false, correlationReport.Structs); ok {
+			action.ResFields = definition.Fields
+		}
+	}
+}
+
 func (a *Analyzer) resolveActionStruct(act ActionContract, isReq bool) (StructDefinition, bool) {
 	ref := act.ReqType
 	typeName := act.ReqTypeName
 	if !isReq {
 		ref = act.ResType
 		typeName = act.ResTypeName
-	}
-	if act.FlowSchemaDriven {
-		schemaName := act.ReqSchemaName
-		if !isReq {
-			schemaName = act.ResSchemaName
-		}
-		if schemaName == "" {
-			return StructDefinition{}, false
-		}
-		schema, ok := a.flowSchemas[schemaName]
-		return schema, ok
 	}
 
 	if ref.Package != "" && ref.Name != "" {

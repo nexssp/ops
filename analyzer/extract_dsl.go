@@ -9,7 +9,7 @@ import (
 	"github.com/nexssp/ops/analyzer/dsl"
 )
 
-func (a *Analyzer) mergeDSLManifest(dslContent, sourceFile string) {
+func (a *flowAnalyzer) mergeDSLManifest(dslContent, sourceFile string) {
 	lines := strings.Split(dslContent, "\n")
 	for _, rawLine := range lines {
 		line := strings.TrimSpace(rawLine)
@@ -25,7 +25,7 @@ func (a *Analyzer) mergeDSLManifest(dslContent, sourceFile string) {
 	}
 }
 
-func (a *Analyzer) parseAndMergeDSLLine(line, sourceFile string) {
+func (a *flowAnalyzer) parseAndMergeDSLLine(line, sourceFile string) {
 	pl, ok := dsl.ParseLine(line)
 	if !ok {
 		return
@@ -135,7 +135,7 @@ func (a *Analyzer) parseAndMergeDSLLine(line, sourceFile string) {
 // applyDSLModifiers folds a parsed DSL Modifiers block onto an ActionContract.
 // List fields (roles, permissions, features, tags) merge with what Go source
 // already declared; scalar fields are overridden only when DSL set them.
-func applyDSLModifiers(a *Analyzer, act *ActionContract, p *dsl.Modifiers, effectiveName, sourceFile string) {
+func applyDSLModifiers(a *flowAnalyzer, act *ActionContract, p *dsl.Modifiers, effectiveName, sourceFile string) {
 	for _, b := range p.Transports {
 		act.Transports = appendUniqueTransport(act.Transports, b)
 		switch b.Kind {
@@ -306,7 +306,7 @@ func describeDSLTargets(p *dsl.Modifiers) string {
 	return strings.Join(parts, ", ")
 }
 
-func (a *Analyzer) applyTypeOverride(act *ActionContract, dslReq, dslRes, effectiveName, sourceFile string) {
+func (a *flowAnalyzer) applyTypeOverride(act *ActionContract, dslReq, dslRes, effectiveName, sourceFile string) {
 	if dslReq != "" {
 		goReq := lastTypeSegment(act.ReqTypeName)
 		dslSeg := lastTypeSegment(dslReq)
@@ -387,7 +387,7 @@ func inferResTypeName(actName string) string {
 	return toPascalCase(actName) + "Res"
 }
 
-func (a *Analyzer) ScanFlowFiles(root string) {
+func (a *flowAnalyzer) ScanFlowFiles(root string) {
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil

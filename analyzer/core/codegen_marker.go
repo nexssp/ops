@@ -1,4 +1,4 @@
-package analyzer
+package core
 
 import (
 	"crypto/sha256"

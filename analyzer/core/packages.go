@@ -1,4 +1,4 @@
-package analyzer
+package core
 
 import (
 	"fmt"
@@ -90,6 +90,12 @@ func findLocalDependencies(baseDir string) []string {
 		}
 	}
 	return dirs
+}
+
+// LocalDependencyRoots returns local replacement directories discovered from
+// a root's go.mod, matching the source roots used by AnalyzeGoAll.
+func LocalDependencyRoots(root string) []string {
+	return findLocalDependencies(root)
 }
 
 func collectFileImports(f *ast.File) map[string]string {

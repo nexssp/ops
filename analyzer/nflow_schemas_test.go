@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/nexssp/ops/analyzer"
+	"github.com/nexssp/ops/analyzer/core"
 )
 
 func TestNFlowBoundarySchemasDrivePublicTypesWithoutGoFallback(t *testing.T) {
@@ -83,6 +84,12 @@ func List() action.AnyAction {
 	if list.ResTypeName != "PublicListResponse" {
 		t.Errorf("list response schema = %q, want PublicListResponse", list.ResTypeName)
 	}
+	if _, ok := report.Structs["nflow.PublicCreateRequest"]; !ok {
+		t.Fatal("Flow request schema is missing from the returned report's Structs")
+	}
+	if len(create.ReqFields) != 3 || len(create.ResFields) != 2 {
+		t.Errorf("Flow request/response fields were not correlated: request=%+v response=%+v", create.ReqFields, create.ResFields)
+	}
 
 	files := generatedByName(analyzer.GenerateTypeScriptAPISDK(report))
 	types := string(files["_gen/api/types.ts"])
@@ -110,6 +117,12 @@ func List() action.AnyAction {
 	}
 	if strings.Contains(endpoints, "Types.GoListRequest") || strings.Contains(endpoints, "Types.GoListResponse") {
 		t.Errorf("Go DTO fallback leaked into NFlow endpoint signatures:\n%s", endpoints)
+	}
+	directCoreFiles := generatedByName(core.GenerateTypeScriptSDK(report))
+	directCoreTypes := string(directCoreFiles["_gen/api/types.ts"])
+	directCoreEndpoints := string(directCoreFiles["_gen/api/endpoints.ts"])
+	if !strings.Contains(directCoreTypes, "export interface PublicCreateRequest") || !strings.Contains(directCoreEndpoints, "Types.PublicCreateRequest") {
+		t.Errorf("direct core SDK generation dropped Flow DTOs or action types:\ntypes:\n%s\nendpoints:\n%s", directCoreTypes, directCoreEndpoints)
 	}
 	second := generatedByName(analyzer.GenerateTypeScriptAPISDK(report))
 	for path, content := range files {

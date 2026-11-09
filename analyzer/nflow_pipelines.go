@@ -28,7 +28,7 @@ func standardFlowDirectives() *compiler.DirectiveTable {
 
 // scanNFlowPipelines uses Flow's own preprocessing and @pipeline directive
 // contract, rather than attempting to parse pipeline headers as legacy DSL.
-func (a *Analyzer) scanNFlowPipelines(source, file string) {
+func (a *flowAnalyzer) scanNFlowPipelines(source, file string) {
 	if !hasNFlowDirective(source) {
 		return
 	}
@@ -282,7 +282,7 @@ func parsePipelineRoute(name, body string, rawModifiers []string, actions []Acti
 	return &contract
 }
 
-func (a *Analyzer) mergePipelineContract(incoming ActionContract, pipelineName, file string) {
+func (a *flowAnalyzer) mergePipelineContract(incoming ActionContract, pipelineName, file string) {
 	for i := range a.actions {
 		if a.actions[i].Name != incoming.Name {
 			continue

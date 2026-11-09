@@ -1,4 +1,4 @@
-package analyzer
+package core
 
 import (
 	"fmt"
@@ -25,6 +25,17 @@ func parseValidatorRules(raw string) []validatorRule {
 		}
 	}
 	return rules
+}
+
+// HasValidatorRule reports whether raw contains a validation rule with the
+// requested name.
+func HasValidatorRule(raw, expected string) bool {
+	for _, rule := range parseValidatorRules(raw) {
+		if rule.Name == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func splitValidatorTokens(raw string) []string {
