@@ -226,7 +226,10 @@ func formatTSNamespaceType(t string, tsStructs map[string]StructDefinition) stri
 	case "string", "number", "boolean", "IsoDateString":
 		return t
 	}
-	if strings.HasPrefix(t, "Record<") || strings.HasSuffix(t, "[]") || strings.Contains(t, "|") {
+	if strings.HasSuffix(t, "[]") {
+		return formatTSNamespaceType(strings.TrimSuffix(t, "[]"), tsStructs) + "[]"
+	}
+	if strings.HasPrefix(t, "Record<") || strings.Contains(t, "|") {
 		return t
 	}
 	if sDef, ok := tsStructs[t]; ok {

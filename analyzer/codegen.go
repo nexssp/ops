@@ -10,6 +10,10 @@ func GenerateTypeScriptAPISDK(report *Report) []GeneratedFile {
 	return core.GenerateTypeScriptAPISDK(flowAwareReport(report))
 }
 
+func GenerateTypeScriptAPI(report *Report) []GeneratedFile {
+	return core.GenerateTypeScriptAPI(flowAwareReport(report))
+}
+
 func ValidatePublicAPI(report *Report) []Diagnostic {
 	return validateFlowPublicAPI(report)
 }

@@ -1,5 +1,7 @@
 package core
 
+import "strings"
+
 // GenerateTypeScriptSDK produces the full generated tree for ui/src/lib/.
 //
 // Three categories of output, distinguished by GeneratedFile.Overwrite:
@@ -26,6 +28,23 @@ func GenerateTypeScriptSDK(report *Report) []GeneratedFile {
 // It excludes unrelated structs that were exposed by package/file conventions.
 func GenerateTypeScriptAPISDK(report *Report) []GeneratedFile {
 	return generateTypeScriptSDK(report, false)
+}
+
+// GenerateTypeScriptAPI emits only the public API client files directly into
+// the output directory. Unlike GenerateTypeScriptAPISDK, it does not include
+// stores, app-level barrels, or scaffold files.
+func GenerateTypeScriptAPI(report *Report) []GeneratedFile {
+	const apiPrefix = "_gen/api/"
+	all := generateTypeScriptSDK(report, false)
+	files := make([]GeneratedFile, 0, 4)
+	for _, file := range all {
+		if !strings.HasPrefix(file.Path, apiPrefix) {
+			continue
+		}
+		file.Path = strings.TrimPrefix(file.Path, apiPrefix)
+		files = append(files, file)
+	}
+	return files
 }
 
 func generateTypeScriptSDK(report *Report, includeExposed bool) []GeneratedFile {

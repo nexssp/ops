@@ -15,7 +15,7 @@ func TestSDKForceCannotBypassPublicContractValidation(t *testing.T) {
 		if err := os.Chdir(root); err != nil {
 			t.Fatal(err)
 		}
-		handleSDKGen([]string{"--scan", ".", "--api-only", "--force", filepath.Join(root, "out", "lib"), "--quiet"})
+		handleSDKGen([]string{"api", filepath.Join(root, "out", "api"), "--scan", ".", "--force", "--quiet"})
 		return
 	}
 
@@ -45,7 +45,7 @@ func Register() action.AnyAction {
 	if !strings.Contains(string(output), "--force does not bypass this check") {
 		t.Fatalf("SDK did not report the non-bypassable contract check; output:\n%s", output)
 	}
-	if _, err := os.Stat(filepath.Join(root, "out", "lib", "_gen", "api", "types.ts")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "out", "api", "types.ts")); !os.IsNotExist(err) {
 		t.Fatalf("unsafe SDK output was written (stat error: %v)", err)
 	}
 }

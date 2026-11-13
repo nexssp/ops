@@ -113,7 +113,22 @@ func scaffoldServiceName(projectDir string) string {
 }
 
 func handleSDKGen(args []string) {
+	apiMode := len(args) > 0 && strings.EqualFold(args[0], "api")
+	apiOutputDir := ""
+	if apiMode {
+		apiOutputDir, args = parseSDKAPIArgs(args[1:])
+	}
 	opts := parseScanArgs(args, true)
+	if apiMode {
+		opts.APIOnly = true
+		if apiOutputDir == "" {
+			apiOutputDir = filepath.Join("ui", "src", "lib", "_gen", "api")
+		}
+		if strings.HasSuffix(strings.ToLower(apiOutputDir), ".ts") {
+			apiOutputDir = filepath.Dir(apiOutputDir)
+		}
+		opts.UILibDir = apiOutputDir
+	}
 	uiLibDir := opts.UILibDir
 	if uiLibDir == "" {
 		uiLibDir = filepath.Join("ui", "src", "lib")
@@ -153,7 +168,9 @@ func handleSDKGen(args []string) {
 	}
 
 	var files []analyzer.GeneratedFile
-	if opts.APIOnly {
+	if apiMode {
+		files = analyzer.GenerateTypeScriptAPI(report)
+	} else if opts.APIOnly {
 		files = analyzer.GenerateTypeScriptAPISDK(report)
 	} else {
 		files = analyzer.GenerateTypeScriptSDK(report)
@@ -420,8 +437,10 @@ func printHelp() {
 		  nexssp ui:init [--force]        Scaffold SvelteKit 3 + Svelte 5 from this project
 		  nexssp backend [flags] [root...] Generate a Flow/Kernel HTTP backend from action routes
 	  nexssp sdk [flags] [root...]    Generate TypeScript + Zod SDK from action contracts
-  nexssp actions [flags] [root...] [filter]
-                                  List all registered actions and HTTP routes
+	  nexssp sdk api [apiDir] [--scan <dir>...]
+	                                  Generate only client.ts, types.ts, endpoints.ts, and index.ts
+	  nexssp actions [flags] [root...] [filter]
+	                                  List all registered actions and HTTP routes
 	nexssp analyze [flags] [root...]
                                   Run static AST analysis & contract diagnostics
 	nexssp studio [file.nflow]      Open a local Svelte Studio for a Flow file
@@ -443,11 +462,12 @@ func printHelp() {
 SDK flags:
 	--force / -f   Bypass regular diagnostics and overwrite write-once files.
 	                 Unsafe public TypeScript contracts are never force-generated.
-	--prune-generated  Remove stale generated files only under _gen/stores/{entities,forms,streams,system}
-	--exclude-pipeline <name>  Omit an NFlow pipeline from SDK output (repeatable)
-	--api-only  Emit only DTOs reachable from routed public actions
-	<uiLibDir>     Output root (default: ui/src/lib)
-	<out.ts>       Legacy: use its containing directory as the output root
+		--prune-generated  Remove stale generated files only under _gen/stores/{entities,forms,streams,system}
+		--exclude-pipeline <name>  Omit an NFlow pipeline from SDK output (repeatable)
+		--api-only  Legacy full-SDK mode: limit DTOs to routed public actions
+		sdk api [apiDir]  Write only the API client files directly into apiDir (default: ui/src/lib/_gen/api)
+		<uiLibDir>     Output root (default: ui/src/lib)
+		<out.ts>       Legacy: use its containing directory as the output root
 
 Generated tree (under <uiLibDir>):
   _gen/api/           Always overwritten — client, types, endpoints
@@ -464,12 +484,13 @@ Write-once behavior:
   • You edit the file: it is preserved on every subsequent run.
   • 'nexssp sdk --force': overrides the preservation and rewrites.
 
-	Examples:
+		Examples:
 	  nexssp backend --scan . --out app/backend_server_gen.go --package app
 	  nexssp backend --scan . --exclude-pipeline chaos_retry_probe
 	  nexssp backend --scan . --exclude-action catalog.rebuild
 	  nexssp sdk
-  nexssp sdk --scan . --scan ../ai/agent/docker
+	  nexssp sdk api ./src/lib/_gen/api
+	  nexssp sdk --scan . --scan ../ai/agent/docker
   nexssp sdk --force
   nexssp sdk -q --scan=. --scan=../ai/agent/sandbox
 	  nexssp actions --enhanced .

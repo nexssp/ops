@@ -47,11 +47,12 @@ func (a *Analyzer) resolveActionStruct(act ActionContract, isReq bool) (StructDe
 	}
 
 	if ref.Package != "" && ref.Name != "" {
-		if s, ok := a.structs[StructKey{Domain: ref.Domain, Package: ref.Package, Name: ref.Name}]; ok {
+		refName := stripArrayTypePrefixes(ref.Name)
+		if s, ok := a.structs[StructKey{Domain: ref.Domain, Package: ref.Package, Name: refName}]; ok {
 			return s, true
 		}
 		for k, s := range a.structs {
-			if k.Package == ref.Package && k.Name == ref.Name {
+			if k.Package == ref.Package && k.Name == refName {
 				return s, true
 			}
 		}
@@ -74,8 +75,9 @@ func (a *Analyzer) resolveActionStruct(act ActionContract, isReq bool) (StructDe
 	if idx := strings.LastIndex(clean, "."); idx >= 0 {
 		clean = clean[idx+1:]
 	}
+	clean = stripArrayTypePrefixes(clean)
 	for _, s := range a.structs {
-		if s.Name == clean || s.Qualified == typeName {
+		if s.Name == clean || s.Qualified == typeName || s.Qualified == clean {
 			return s, true
 		}
 	}

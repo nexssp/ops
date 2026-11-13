@@ -107,7 +107,8 @@ func resolveActionStruct(act ActionContract, isReq bool, raw map[string]StructDe
 	}
 
 	if ref.Package != "" && ref.Name != "" {
-		if s, ok := raw[ref.Package+"."+ref.Name]; ok {
+		refName := stripArrayTypePrefixes(ref.Name)
+		if s, ok := raw[ref.Package+"."+refName]; ok {
 			return s, true
 		}
 	}
@@ -127,8 +128,9 @@ func resolveActionStruct(act ActionContract, isReq bool, raw map[string]StructDe
 	if idx := strings.LastIndex(clean, "."); idx >= 0 {
 		clean = clean[idx+1:]
 	}
+	clean = stripArrayTypePrefixes(clean)
 	for _, s := range raw {
-		if s.Name == clean || s.Qualified == typeName {
+		if s.Name == clean || s.Qualified == typeName || s.Qualified == clean {
 			return s, true
 		}
 	}
@@ -138,7 +140,11 @@ func resolveActionStruct(act ActionContract, isReq bool, raw map[string]StructDe
 
 func resolveActionTypeTS(act ActionContract, isReq bool, tsStructs, raw map[string]StructDefinition, colliding map[string]bool) string {
 	if sDef, ok := resolveActionStruct(act, isReq, raw); ok {
-		return targetTSName(sDef, colliding)
+		typeName := act.ReqTypeName
+		if !isReq {
+			typeName = act.ResTypeName
+		}
+		return targetTSName(sDef, colliding) + strings.Repeat("[]", arrayTypeDepth(typeName))
 	}
 
 	typeName := act.ReqTypeName
@@ -154,6 +160,25 @@ func resolveActionTypeTS(act ActionContract, isReq bool, tsStructs, raw map[stri
 		clean = clean[idx+1:]
 	}
 	return mapGoTypeToTS(clean)
+}
+
+func stripArrayTypePrefixes(typeName string) string {
+	for strings.HasPrefix(typeName, "[]") {
+		typeName = strings.TrimSpace(strings.TrimPrefix(typeName, "[]"))
+	}
+	return typeName
+}
+
+func arrayTypeDepth(typeName string) int {
+	if idx := strings.LastIndexByte(typeName, '.'); idx >= 0 {
+		typeName = typeName[idx+1:]
+	}
+	depth := 0
+	for strings.HasPrefix(typeName, "[]") {
+		depth++
+		typeName = strings.TrimSpace(strings.TrimPrefix(typeName, "[]"))
+	}
+	return depth
 }
 
 func findStructByAny(name string, tsStructs, raw map[string]StructDefinition) (StructDefinition, bool) {

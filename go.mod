@@ -4,7 +4,7 @@ go 1.27.4
 
 require (
 	github.com/nats-io/nats-server/v2 v2.15.1
-	github.com/nexssp/flow v0.73.0
+	github.com/nexssp/flow v0.75.0
 	github.com/nexssp/kernel v0.38.1
 	github.com/nexssp/observability v0.9.0
 	github.com/nexssp/transport v0.9.1

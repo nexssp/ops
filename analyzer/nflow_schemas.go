@@ -164,6 +164,45 @@ func flowSchemaType(raw string, knownSchemas map[string]bool) (string, bool, err
 	return "", nullable, fmt.Errorf("type %q is neither a supported scalar nor a declared Flow schema", t)
 }
 
+func flowSchemaContractType(schemas map[string]StructDefinition, expression string) (string, TypeRef, error) {
+	expression = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(expression), "!"))
+	if expression == "" {
+		return "", TypeRef{}, fmt.Errorf("empty schema type")
+	}
+	known := make(map[string]bool, len(schemas))
+	for name := range schemas {
+		known[name] = true
+	}
+	if _, _, err := flowSchemaType(expression, known); err != nil {
+		return "", TypeRef{}, err
+	}
+
+	depth := 0
+	base := expression
+	for strings.HasPrefix(base, "[]") {
+		depth++
+		base = strings.TrimSpace(strings.TrimPrefix(base, "[]"))
+	}
+	if strings.HasPrefix(base, "*") || strings.HasPrefix(base, "map[") {
+		return "", TypeRef{}, fmt.Errorf("top-level type %q is not supported; use a scalar, a declared @schema, or an array of either", expression)
+	}
+	switch base {
+	case "string", "bool", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "duration", "time.Duration":
+		return expression, TypeRef{}, nil
+	}
+
+	resolved, err := resolveFlowSchemaName(base, known)
+	if err != nil {
+		return "", TypeRef{}, err
+	}
+	if resolved == "" {
+		return "", TypeRef{}, fmt.Errorf("type %q is not a supported scalar or declared @schema", base)
+	}
+	definition := schemas[resolved]
+	typeName := strings.Repeat("[]", depth) + definition.Name
+	return typeName, TypeRef{Domain: "nflow", Package: "nflow", Name: strings.TrimPrefix(definition.Qualified, "nflow.")}, nil
+}
+
 func resolveFlowSchemaName(name string, knownSchemas map[string]bool) (string, error) {
 	if knownSchemas[name] {
 		return name, nil
@@ -280,12 +319,19 @@ func (a *flowAnalyzer) applyFlowPipelineSchemas(contract *ActionContract, modifi
 			a.addFlowSchemaReferenceError(file, line, contract.Name, side, name)
 			return "", "", TypeRef{}
 		}
-		resolved, definition, err := a.findFlowSchema(name)
-		if err != nil || resolved == "" {
-			a.addFlowSchemaReferenceError(file, line, contract.Name, side, name)
+		typeName, ref, err := flowSchemaContractType(a.flowSchemas, name)
+		if err != nil {
+			a.diagnostics = append(a.diagnostics, Diagnostic{
+				Severity: SeverityError,
+				Rule:     "nflow/schema-reference",
+				File:     file,
+				Line:     line,
+				Action:   contract.Name,
+				Message:  fmt.Sprintf("NFlow route %s declares %s schema %q, but it is not a supported public JSON type: %v", contract.Name, side, name, err),
+			})
 			return "", "", TypeRef{}
 		}
-		return resolved, definition.Name, TypeRef{Domain: "nflow", Package: "nflow", Name: resolved}
+		return name, typeName, ref
 	}
 	contract.ReqSchemaName, contract.ReqTypeName, contract.ReqType = bind("request", requestName, requestDeclared)
 	contract.ResSchemaName, contract.ResTypeName, contract.ResType = bind("response", responseName, responseDeclared)

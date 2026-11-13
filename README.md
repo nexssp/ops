@@ -41,6 +41,9 @@ nexssp backend --scan . --out app/backend_server_gen.go --package app
 # Generate TypeScript and Zod SDK files (default output: ui/src/lib)
 nexssp sdk --scan .
 
+# Generate only the public API client files into this API folder
+nexssp sdk api ./ui/src/lib/_gen/api
+
 # Scaffold the SvelteKit UI or the Studio route
 nexssp ui:init
 nexssp ui:studio
@@ -57,7 +60,7 @@ For a hands-on example, see the [incident-triage Studio walkthrough](examples/st
 
 The SDK generator inspects the selected source tree and preserves user-edited extension files by default. Use `nexssp sdk --force` only when you intend to overwrite those generated outputs. The UI scaffold derives its display/package name from the current project directory and does not require a named system's API contract. Generated transport clients do not assume authentication or call token-refresh endpoints; add auth only in the application, with caller-supplied headers or a custom fetcher.
 
-When an NFlow HTTP pipeline binds `:request-schema` or `:response-schema`, the public SDK types and endpoint signatures come from those NFlow `@schema` declarations rather than conflicting Go-AST DTOs. Bodyless routes stay argument-free, and unsupported untyped fields such as `any` are reported instead of widened into public contracts. Routes without explicit NFlow boundary schemas continue to use their analyzed action contracts.
+When an NFlow HTTP pipeline binds `:request-schema` or `:response-schema`, the public SDK types and endpoint signatures come from those NFlow `@schema` declarations rather than conflicting Go-AST DTOs. Response schemas may be a declared `@schema`, a supported scalar, or a top-level array such as `[]Widget` or `[]string`; the array is emitted as an array, not wrapped in an object. Bodyless routes stay argument-free, and unsupported or unresolved contracts—including untyped fields such as `any`—are reported before any files are written instead of being widened or silently omitted. Routes without explicit NFlow boundary schemas continue to use their analyzed action contracts.
 
 **Existing UI scaffolds:** `nexssp ui:init` now emits a generic SvelteKit shell and no longer generates the legacy login/auth/client/router templates. Existing files are preserved unless `--force` is used; migrate or remove obsolete files yourself, and back up local edits before forcing replacements.
 

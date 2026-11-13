@@ -75,14 +75,19 @@ func flowSchemaActionType(report *Report, schemaName string) (string, TypeRef) {
 	if schemaName == "" {
 		return "struct{}", TypeRef{}
 	}
-	if definition, ok := findFlowSchema(report, schemaName); ok {
-		name := strings.TrimPrefix(definition.Qualified, "nflow.")
-		return definition.Name, TypeRef{Domain: "nflow", Package: "nflow", Name: name}
+	typeName, ref, err := flowSchemaContractType(report.FlowSchemas, schemaName)
+	if err == nil {
+		return typeName, ref
 	}
-	return "struct{}", TypeRef{}
+	return "unknown", TypeRef{}
 }
 
 func findFlowSchema(report *Report, name string) (StructDefinition, bool) {
+	name = strings.TrimSpace(name)
+	for strings.HasPrefix(name, "[]") {
+		name = strings.TrimSpace(strings.TrimPrefix(name, "[]"))
+	}
+	name = strings.TrimPrefix(name, "*")
 	if definition, ok := report.FlowSchemas[name]; ok {
 		return definition, true
 	}
