@@ -10,13 +10,15 @@ linters:
     - ineffassign
 formatters:
   enable:
+    - gofmt
     - gofumpt
     - gci
   settings:
-    gofumpt:
+    gofmt:
       rewrite-rules:
         - pattern: 'interface{}'
           replacement: 'any'
+    gofumpt:
       extra:
         group-params: true
     gci:

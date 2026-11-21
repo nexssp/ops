@@ -3,15 +3,15 @@ module github.com/nexssp/ops
 go 1.27.4
 
 require (
-	github.com/nats-io/nats-server/v2 v2.15.1
-	github.com/nexssp/flow v0.80.0
-	github.com/nexssp/kernel v0.39.1
-	github.com/nexssp/observability v0.9.0
-	github.com/nexssp/transport v0.9.1
+	github.com/nats-io/nats-server/v2 v2.15.3
+	github.com/nexssp/flow v0.95.0
+	github.com/nexssp/kernel v0.40.3
+	github.com/nexssp/observability v0.10.0
+	github.com/nexssp/transport v0.19.1
 )
 
 require (
-	github.com/antithesishq/antithesis-sdk-go v0.8.0 // indirect
+	github.com/antithesishq/antithesis-sdk-go v0.9.0-default-no-op // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -25,16 +25,15 @@ require (
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.32.0 // indirect
-	github.com/klauspost/compress v1.20.3 // indirect
+	github.com/klauspost/compress v1.20.4 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/nats-io/jwt/v2 v2.8.2 // indirect
-	github.com/nats-io/nats.go v1.55.0 // indirect
-	github.com/nats-io/nkeys v0.4.16 // indirect
+	github.com/nats-io/jwt/v2 v2.8.3 // indirect
+	github.com/nats-io/nkeys v0.4.17 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
-	github.com/nexssp/validation v0.5.0 // indirect
+	github.com/nexssp/validation v0.6.0 // indirect
 	github.com/prometheus/client_golang v1.25.0 // indirect
 	github.com/prometheus/client_model v0.6.3 // indirect
 	github.com/prometheus/common v0.72.1 // indirect
