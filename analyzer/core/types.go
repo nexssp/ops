@@ -70,9 +70,8 @@ type ActionContract struct {
 	Streaming        bool               `json:"streaming,omitempty"`
 	Raw              bool               `json:"raw,omitempty"`
 
-	// Multipart is true when at least one request field is declared with a
-	// `form:"..."` tag on a []byte — the client method is emitted as
-	// multipart/form-data instead of application/json.
+	// Multipart is true when a request field has a `form:"..."` tag on a
+	// []byte or transport FormFile value, so the client uses multipart/form-data.
 	Multipart bool `json:"multipart,omitempty"`
 
 	// BlobResponse is true when the action's declared response type is
@@ -112,9 +111,8 @@ type FieldContract struct {
 	Validation    string `json:"validation,omitempty"`
 	RawTags       string `json:"raw_tags,omitempty"`
 
-	// Multipart marks a field that must be transported as a file part in
-	// a multipart/form-data request. Set by the analyzer when a []byte field
-	// carries a `form:"..."` tag.
+	// Multipart marks a field transported as a file part in a multipart/form-data
+	// request. The analyzer sets it for form-tagged []byte or transport FormFile fields.
 	Multipart bool `json:"multipart,omitempty"`
 }
 

@@ -60,3 +60,44 @@ func TestEndpointQueryArgumentOptionalityFollowsDTOFields(t *testing.T) {
 		t.Fatalf("all-optional GET filter DTO should remain optional:\n%s", generated)
 	}
 }
+
+func TestMultipartEndpointOmitsAbsentOptionalFile(t *testing.T) {
+	request := StructDefinition{
+		Name: "UploadRequest", Package: "uploads", Domain: "uploads", Qualified: "uploads.UploadRequest",
+		Fields: []FieldContract{
+			{Name: "Certificate", Key: "certificate", Type: "File", Required: true, Multipart: true},
+			{Name: "PrivateKey", Key: "private_key", Type: "File", Multipart: true},
+			{Name: "Password", Key: "password", Type: "string", Required: true},
+		},
+	}
+	response := StructDefinition{
+		Name: "UploadResponse", Package: "uploads", Domain: "uploads", Qualified: "uploads.UploadResponse",
+		Fields: []FieldContract{{Name: "ID", Key: "id", Type: "string", Required: true}},
+	}
+	raw := map[string]StructDefinition{
+		"uploads.UploadRequest":  request,
+		"uploads.UploadResponse": response,
+	}
+	ts := map[string]StructDefinition{
+		"UploadRequest":  request,
+		"UploadResponse": response,
+	}
+	var out bytes.Buffer
+	emitEndpointMethod(&out, ActionContract{
+		Name: "uploads.create", Scope: "public", Method: "POST", Path: "/api/uploads",
+		ReqTypeName: "UploadRequest", ResTypeName: "UploadResponse", Multipart: true,
+	}, ts, raw, map[string]bool{})
+	generated := out.String()
+	for _, want := range []string{
+		`fd.append("certificate", req.certificate as unknown as Blob);`,
+		`if (req.private_key != null) fd.append("private_key", req.private_key as unknown as Blob);`,
+	} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("multipart endpoint is missing %q:\n%s", want, generated)
+		}
+	}
+	if strings.Contains(generated, `
+    fd.append("private_key"`) {
+		t.Errorf("optional file was emitted unconditionally:\n%s", generated)
+	}
+}

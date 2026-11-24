@@ -61,12 +61,28 @@ func ViewAction() action.AnyAction {
 	}
 	sdk := string(generatedByName(analyzer.GenerateTypeScriptSDK(report))["_gen/api/endpoints.ts"])
 
-	if !strings.Contains(sdk, `consoleStream: { name: "console.stream", method: "SSE", path: "/api/events", streaming: true, raw: false`) {
-		t.Errorf("consoleStream missing from endpointMeta:\n%s", sdk)
+	assertMetadata := func(name string, wants ...string) {
+		t.Helper()
+		marker := "  " + name + ": "
+		start := strings.Index(sdk, marker)
+		if start < 0 {
+			t.Errorf("%s missing from endpointMeta:\n%s", name, sdk)
+			return
+		}
+		start += len(marker)
+		end := strings.IndexByte(sdk[start:], '\n')
+		meta := sdk[start:]
+		if end >= 0 {
+			meta = meta[:end]
+		}
+		for _, want := range wants {
+			if !strings.Contains(meta, want) {
+				t.Errorf("%s metadata missing %s:\n%s", name, want, meta)
+			}
+		}
 	}
-	if !strings.Contains(sdk, `workspaceView: { name: "workspace.view", method: "GET", path: "/api/view", streaming: false, raw: true`) {
-		t.Errorf("workspaceView missing from endpointMeta:\n%s", sdk)
-	}
+	assertMetadata("consoleStream", `"name":"console.stream"`, `"method":"SSE"`, `"path":"/api/events"`, `"streaming":true`, `"raw":false`)
+	assertMetadata("workspaceView", `"name":"workspace.view"`, `"method":"GET"`, `"path":"/api/view"`, `"streaming":false`, `"raw":true`)
 
 	// api object should NOT contain methods for SSE/Raw
 	apiBody := extractApiObject(sdk)

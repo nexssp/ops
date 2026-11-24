@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // generateEndpointsFile emits _gen/api/endpoints.ts.
@@ -13,7 +14,7 @@ import (
 // transport shapes are recognised:
 //
 //   - JSON      : default — JSON body in, JSON body out
-//   - Multipart : any request field carries a `form:` tag on a []byte field
+//   - Multipart : request has a form-tagged []byte or transport FormFile field
 //   - Blob      : response type is []byte
 func generateEndpointsFile(report *Report, tsStructs map[string]StructDefinition, colliding map[string]bool) []byte {
 	var buf bytes.Buffer
@@ -22,10 +23,10 @@ func generateEndpointsFile(report *Report, tsStructs map[string]StructDefinition
 	buf.WriteString("import * as Types from './types';\n\n")
 
 	buf.WriteString(`export interface FieldMeta {
-  name: string;
   key: string;
   type: string;
   required: boolean;
+  label: string;
   nullable?: boolean;
   validation?: string;
   raw_tags?: string;
@@ -34,13 +35,33 @@ func generateEndpointsFile(report *Report, tsStructs map[string]StructDefinition
 
 export interface EndpointMeta {
   name: string;
+  methodName: string;
+  description: string;
   method: string;
   path: string;
+  reqType: string;
+  resType: string;
+  requiresAuth: boolean;
+  requiredRoles: string[];
+  requiredPermissions: string[];
+  requiredFeatures: string[];
+  tags: string[];
+  node?: string;
+  fields: FieldMeta[];
+  resFields: FieldMeta[];
+  retryMax: number;
+  timeoutMs: number;
+  concurrencyLimit?: number;
+  rateLimit?: string;
+  cacheTtlMs?: number;
+  idempotent?: boolean;
+  deduplicated?: boolean;
+  coalesced?: boolean;
   streaming?: boolean;
   raw?: boolean;
   multipart?: boolean;
   blob?: boolean;
-  reqFields?: FieldMeta[];
+  reqFields: FieldMeta[];
 }
 
 export const endpointMeta: Record<string, EndpointMeta> = {
@@ -50,22 +71,35 @@ export const endpointMeta: Record<string, EndpointMeta> = {
 			continue
 		}
 		mName := toCamelCase(act.Name)
-		fieldsJSON, _ := json.Marshal(act.ReqFields)
-		if len(act.ReqFields) == 0 {
-			fieldsJSON = []byte("[]")
+		meta := generatedEndpointMeta{
+			Name:                act.Name,
+			MethodName:          mName,
+			Description:         act.Description,
+			Method:              act.Method,
+			Path:                act.Path,
+			ReqType:             act.ReqTypeName,
+			ResType:             act.ResTypeName,
+			RequiresAuth:        act.RequiresAuth,
+			RequiredRoles:       nonNilStrings(act.Roles),
+			RequiredPermissions: nonNilStrings(act.Permissions),
+			RequiredFeatures:    nonNilStrings(act.Features),
+			Tags:                nonNilStrings(act.Tags),
+			Fields:              generatedFieldMetas(act.ReqFields),
+			ReqFields:           generatedFieldMetas(act.ReqFields),
+			ResFields:           generatedFieldMetas(act.ResFields),
+			RetryMax:            act.RetryMax,
+			TimeoutMs:           int64(act.Timeout / time.Millisecond),
+			ConcurrencyLimit:    act.ConcurrencyLimit,
+			RateLimit:           act.RateLimit,
+			CacheTtlMs:          int64(act.CacheTTL / time.Millisecond),
+			Idempotent:          act.Idempotent,
+			Streaming:           act.Streaming,
+			Raw:                 act.Raw,
+			Multipart:           act.Multipart,
+			Blob:                act.BlobResponse,
 		}
-		extra := ""
-		if act.Multipart {
-			extra += ", multipart: true"
-		}
-		if act.BlobResponse {
-			extra += ", blob: true"
-		}
-		fmt.Fprintf(&buf,
-			"  %s: { name: %q, method: %q, path: %q, streaming: %v, raw: %v%s, reqFields: %s },\n",
-			mName, act.Name, act.Method, act.Path,
-			act.Streaming, act.Raw, extra, string(fieldsJSON),
-		)
+		metaJSON, _ := json.Marshal(meta)
+		fmt.Fprintf(&buf, "  %s: %s,\n", mName, string(metaJSON))
 	}
 	buf.WriteString("};\n\nexport const api = {\n")
 
@@ -82,6 +116,70 @@ export const endpointMeta: Record<string, EndpointMeta> = {
 
 	buf.WriteString("};\n")
 	return buf.Bytes()
+}
+
+type generatedFieldMeta struct {
+	Key        string `json:"key"`
+	Type       string `json:"type"`
+	Required   bool   `json:"required"`
+	Label      string `json:"label"`
+	Nullable   bool   `json:"nullable,omitempty"`
+	Validation string `json:"validation,omitempty"`
+	RawTags    string `json:"raw_tags,omitempty"`
+	Multipart  bool   `json:"multipart,omitempty"`
+}
+
+type generatedEndpointMeta struct {
+	Name                string               `json:"name"`
+	MethodName          string               `json:"methodName"`
+	Description         string               `json:"description"`
+	Method              string               `json:"method"`
+	Path                string               `json:"path"`
+	ReqType             string               `json:"reqType"`
+	ResType             string               `json:"resType"`
+	RequiresAuth        bool                 `json:"requiresAuth"`
+	RequiredRoles       []string             `json:"requiredRoles"`
+	RequiredPermissions []string             `json:"requiredPermissions"`
+	RequiredFeatures    []string             `json:"requiredFeatures"`
+	Tags                []string             `json:"tags"`
+	Fields              []generatedFieldMeta `json:"fields"`
+	ReqFields           []generatedFieldMeta `json:"reqFields"`
+	ResFields           []generatedFieldMeta `json:"resFields"`
+	RetryMax            int                  `json:"retryMax"`
+	TimeoutMs           int64                `json:"timeoutMs"`
+	ConcurrencyLimit    int32                `json:"concurrencyLimit"`
+	RateLimit           string               `json:"rateLimit"`
+	CacheTtlMs          int64                `json:"cacheTtlMs"`
+	Idempotent          bool                 `json:"idempotent"`
+	Streaming           bool                 `json:"streaming"`
+	Raw                 bool                 `json:"raw"`
+	Multipart           bool                 `json:"multipart,omitempty"`
+	Blob                bool                 `json:"blob,omitempty"`
+}
+
+func generatedFieldMetas(fields []FieldContract) []generatedFieldMeta {
+	metadata := make([]generatedFieldMeta, 0, len(fields))
+	for _, field := range fields {
+		label := field.Name
+		if label == "" {
+			label = field.Key
+		}
+		metadata = append(metadata, generatedFieldMeta{
+			Key:        field.Key,
+			Type:       field.Type,
+			Required:   field.Required,
+			Label:      label,
+			Nullable:   field.Nullable,
+			Validation: field.Validation,
+			RawTags:    field.RawTags,
+			Multipart:  field.Multipart,
+		})
+	}
+	return metadata
+}
+
+func nonNilStrings(values []string) []string {
+	return append([]string{}, values...)
 }
 
 // pathResolverFor returns the client-side URL resolver that matches the HTTP
@@ -167,7 +265,11 @@ func emitEndpointMethod(
 		if hasStruct {
 			for _, f := range sDef.Fields {
 				if f.Multipart {
-					fmt.Fprintf(buf, "    fd.append(%q, req.%s as unknown as Blob);\n", f.Key, f.Key)
+					if f.Required {
+						fmt.Fprintf(buf, "    fd.append(%q, req.%s as unknown as Blob);\n", f.Key, f.Key)
+					} else {
+						fmt.Fprintf(buf, "    if (req.%s != null) fd.append(%q, req.%s as unknown as Blob);\n", f.Key, f.Key, f.Key)
+					}
 				} else {
 					fmt.Fprintf(buf, "    fd.append(%q, String(req.%s ?? ''));\n", f.Key, f.Key)
 				}

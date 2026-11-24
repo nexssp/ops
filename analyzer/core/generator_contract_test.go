@@ -38,6 +38,43 @@ func TestFieldIsRequiredUsesJSONAndValidationTags(t *testing.T) {
 	}
 }
 
+func TestExtractStructFieldsRecognizesFormFileUploads(t *testing.T) {
+	source := "package dto\nimport \"github.com/nexssp/transport/thttp\"\ntype Request struct {\n" +
+		"Certificate thttp.FormFile `json:\"-\" form:\"certificate\" validate:\"required\"`\n" +
+		"PrivateKey *thttp.FormFile `json:\"-\" form:\"private_key\"`\n" +
+		"Data []byte `json:\"-\" form:\"data\"`\n" +
+		"Hidden string `json:\"-\"`\n}\n"
+	file, err := parser.ParseFile(token.NewFileSet(), "dto.go", source, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decl := file.Decls[1].(*ast.GenDecl)
+	structType := decl.Specs[0].(*ast.TypeSpec).Type.(*ast.StructType)
+	fields := (&Analyzer{}).extractStructFields(structType)
+	if len(fields) != 3 {
+		t.Fatalf("got %d upload fields, want 3: %#v", len(fields), fields)
+	}
+
+	want := map[string]struct {
+		typeName string
+		required bool
+	}{
+		"certificate": {typeName: "File", required: true},
+		"private_key": {typeName: "File", required: false},
+		"data":        {typeName: "File", required: false},
+	}
+	for _, field := range fields {
+		expected, ok := want[field.Key]
+		if !ok {
+			t.Errorf("unexpected upload field %q", field.Key)
+			continue
+		}
+		if field.Type != expected.typeName || !field.Multipart || field.Required != expected.required {
+			t.Errorf("field %q = %#v, want type=%q multipart=true required=%v", field.Key, field, expected.typeName, expected.required)
+		}
+	}
+}
+
 func TestClusterStoresSkipDomainSpecificListEnvelope(t *testing.T) {
 	actions := []ActionContract{
 		{Name: "records.list", Scope: "public", Method: "GET", ResTypeName: "RecordList"},

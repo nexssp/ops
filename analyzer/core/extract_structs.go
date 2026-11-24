@@ -157,35 +157,32 @@ func (a *Analyzer) extractStructFields(st *ast.StructType) []FieldContract {
 
 		jsonKey := name
 		tagStruct := reflect.StructTag(rawTag)
+		valRule := tagStruct.Get("validate")
+		typeStr := exprToString(field.Type)
+		formKey := tagStruct.Get("form")
+		isMultipart := formKey != "" && isMultipartFileType(typeStr)
 		if jt := tagStruct.Get("json"); jt != "" {
 			parts := strings.Split(jt, ",")
-			if parts[0] == "-" {
+			if parts[0] == "-" && !isMultipart {
 				continue
 			}
-			if parts[0] != "" {
+			if parts[0] != "" && parts[0] != "-" {
 				jsonKey = parts[0]
 			}
 		}
+		if isMultipart {
+			jsonKey = formKey
+		}
 
-		valRule := tagStruct.Get("validate")
-		typeStr := exprToString(field.Type)
-
-		// File field detection: []byte with a `form:"..."` tag means the
-		// field is a multipart file part, not a JSON base64 string. The
-		// client generator switches to multipart/form-data for the whole
-		// request when any field carries this flag.
-		isMultipart := false
-		if typeStr == "[]byte" {
-			if formKey := tagStruct.Get("form"); formKey != "" {
-				isMultipart = true
-				jsonKey = formKey
-			}
+		fieldType := mapGoTypeToTS(typeStr)
+		if isMultipart {
+			fieldType = "File"
 		}
 
 		fields = append(fields, FieldContract{
 			Name:       name,
 			Key:        jsonKey,
-			Type:       mapGoTypeToTS(typeStr),
+			Type:       fieldType,
 			Required:   fieldIsRequired(tagStruct, valRule),
 			Validation: valRule,
 			RawTags:    rawTag,
@@ -193,6 +190,11 @@ func (a *Analyzer) extractStructFields(st *ast.StructType) []FieldContract {
 		})
 	}
 	return fields
+}
+
+func isMultipartFileType(typeName string) bool {
+	typeName = strings.TrimPrefix(strings.TrimSpace(typeName), "*")
+	return typeName == "[]byte" || typeName == "FormFile" || strings.HasSuffix(typeName, ".FormFile")
 }
 
 // fieldIsRequired combines explicit validator rules with JSON encoding rules.
@@ -210,7 +212,11 @@ func fieldIsRequired(tag reflect.StructTag, validation string) bool {
 	if jsonTag == "" {
 		return false
 	}
-	for _, option := range strings.Split(jsonTag, ",")[1:] {
+	parts := strings.Split(jsonTag, ",")
+	if parts[0] == "-" {
+		return false
+	}
+	for _, option := range parts[1:] {
 		if option == "omitempty" {
 			return false
 		}

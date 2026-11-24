@@ -209,6 +209,9 @@ func extractBaseType(tsType string) string {
 
 func mapGoTypeToTS(t string) string {
 	t = strings.TrimPrefix(strings.TrimSpace(t), "*")
+	if t == "FormFile" || strings.HasSuffix(t, ".FormFile") {
+		return "File"
+	}
 	switch t {
 	case "[]byte":
 		return "string"
