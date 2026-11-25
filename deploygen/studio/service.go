@@ -24,10 +24,12 @@ import (
 const historyCap = 100
 
 type Service struct {
-	mu         sync.RWMutex
-	catalog    []action.AnyAction
-	byName     map[string]action.AnyAction
-	flowRoutes []ActionDTO
+	mu                 sync.RWMutex
+	catalog            []action.AnyAction
+	byName             map[string]action.AnyAction
+	provider           action.ActionProvider
+	providerGeneration uint64
+	flowRoutes         []ActionDTO
 
 	histMu  sync.RWMutex
 	history []ExecutionRecord
@@ -43,14 +45,60 @@ func NewService(actions []action.AnyAction, reports ...*analyzer.Report) *Servic
 	if len(reports) > 0 {
 		s.flowRoutes = extractFlowRoutes(reports[0])
 	}
+	s.catalog, s.byName = indexActions(actions)
+	return s
+}
+
+// SetActionProvider configures a live source for the Studio action catalog.
+// The provider is queried before each catalog, execute, scenario, and security
+// request. Passing nil stops refreshes and retains the last catalog snapshot.
+func (s *Service) SetActionProvider(provider action.ActionProvider) {
+	s.mu.Lock()
+	s.provider = provider
+	s.providerGeneration++
+	s.mu.Unlock()
+}
+
+func indexActions(actions []action.AnyAction) ([]action.AnyAction, map[string]action.AnyAction) {
+	catalog := make([]action.AnyAction, 0, len(actions))
+	byName := make(map[string]action.AnyAction, len(actions))
 	for _, a := range actions {
-		if a == nil || a.Describe() == nil || a.Describe().Name == "" {
+		if a == nil {
 			continue
 		}
-		s.catalog = append(s.catalog, a)
-		s.byName[a.Describe().Name] = a
+		meta := a.Describe()
+		if meta == nil || meta.Name == "" {
+			continue
+		}
+		catalog = append(catalog, a)
+		byName[meta.Name] = a
 	}
-	return s
+	return catalog, byName
+}
+
+func (s *Service) actionSnapshot() ([]action.AnyAction, map[string]action.AnyAction) {
+	for {
+		s.mu.RLock()
+		provider := s.provider
+		generation := s.providerGeneration
+		if provider == nil {
+			catalog, byName := s.catalog, s.byName
+			s.mu.RUnlock()
+			return catalog, byName
+		}
+		s.mu.RUnlock()
+
+		catalog, byName := indexActions(provider.Actions())
+
+		s.mu.Lock()
+		if generation == s.providerGeneration {
+			s.catalog = catalog
+			s.byName = byName
+			s.mu.Unlock()
+			return catalog, byName
+		}
+		s.mu.Unlock()
+	}
 }
 
 func (s *Service) Actions() []action.AnyAction {
@@ -90,9 +138,8 @@ func (s *Service) Handler() http.Handler {
 // ── /studio/api/actions ──────────────────────────────────────────────────────
 
 func (s *Service) handleActions(_ context.Context, _ struct{}) ([]ActionDTO, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	actions := extractActionsMeta(s.catalog)
+	catalog, _ := s.actionSnapshot()
+	actions := extractActionsMeta(catalog)
 	actions = append(actions, s.flowRoutes...)
 	return actions, nil
 }
@@ -110,9 +157,8 @@ func (s *Service) handleExecute(ctx context.Context, req ExecuteReq) (ExecutionR
 		return ExecutionRecord{}, xerr.BadRequest("action_name required")
 	}
 
-	s.mu.RLock()
-	target, ok := s.byName[req.ActionName]
-	s.mu.RUnlock()
+	_, byName := s.actionSnapshot()
+	target, ok := byName[req.ActionName]
 	if !ok {
 		return ExecutionRecord{}, xerr.NotFound("action not found: " + req.ActionName)
 	}
@@ -242,9 +288,8 @@ func (s *Service) handleFuzz(_ context.Context, req struct {
 	Scenario   string `json:"scenario" validate:"required"`
 },
 ) (map[string]any, error) {
-	s.mu.RLock()
-	target, ok := s.byName[req.ActionName]
-	s.mu.RUnlock()
+	_, byName := s.actionSnapshot()
+	target, ok := byName[req.ActionName]
 	if !ok {
 		return nil, xerr.NotFound("action not found")
 	}
@@ -340,8 +385,7 @@ func edgeValue(f FieldMeta) any {
 // ── /system/security ─────────────────────────────────────────────────────────
 
 func (s *Service) handleSecurity(_ context.Context, _ struct{}) (SecurityUniverse, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	catalog, _ := s.actionSnapshot()
 
 	u := SecurityUniverse{
 		Actions: map[string]struct {
@@ -355,7 +399,7 @@ func (s *Service) handleSecurity(_ context.Context, _ struct{}) (SecurityUnivers
 	roleSet := map[string]bool{}
 	featSet := map[string]bool{}
 
-	for _, a := range s.catalog {
+	for _, a := range catalog {
 		meta := a.Describe()
 		if meta == nil {
 			continue
