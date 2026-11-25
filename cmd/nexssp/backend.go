@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,8 @@ type backendGenOptions struct {
 	Output           string
 	PackageName      string
 	FunctionName     string
+	SelectorName     string
+	RouteManifest    string
 	ExcludePipelines []string
 	ExcludeActions   []string
 	Force            bool
@@ -29,6 +33,7 @@ func parseBackendGenArgs(args []string) (backendGenOptions, error) {
 		Output:       "backend_server_gen.go",
 		PackageName:  "main",
 		FunctionName: "RunGeneratedBackendServer",
+		SelectorName: "SelectGeneratedBackendActions",
 	}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -78,6 +83,22 @@ func parseBackendGenArgs(args []string) (backendGenOptions, error) {
 			opts.FunctionName = v
 		case strings.HasPrefix(arg, "--function="):
 			opts.FunctionName = strings.TrimPrefix(arg, "--function=")
+		case arg == "--selector":
+			v, err := value(arg)
+			if err != nil {
+				return opts, err
+			}
+			opts.SelectorName = v
+		case strings.HasPrefix(arg, "--selector="):
+			opts.SelectorName = strings.TrimPrefix(arg, "--selector=")
+		case arg == "--route-manifest":
+			v, err := value(arg)
+			if err != nil {
+				return opts, err
+			}
+			opts.RouteManifest = v
+		case strings.HasPrefix(arg, "--route-manifest="):
+			opts.RouteManifest = strings.TrimPrefix(arg, "--route-manifest=")
 		case arg == "--exclude-pipeline":
 			v, err := value(arg)
 			if err != nil {
@@ -134,6 +155,14 @@ func handleBackendGen(args []string) {
 		fmt.Fprintf(os.Stderr, "backend: analysis failed: %v\n", err)
 		os.Exit(1)
 	}
+	if opts.RouteManifest != "" {
+		manifestActions, err := loadBackendRouteManifest(opts.RouteManifest)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "backend: read route manifest %q: %v\n", opts.RouteManifest, err)
+			os.Exit(1)
+		}
+		report.Actions = append(report.Actions, manifestActions...)
+	}
 	printReportSummary(report, opts.Quiet)
 	if report.Stats.ErrorCount > 0 {
 		fmt.Fprintf(os.Stderr, "backend: generation aborted: %d analyzer error(s)\n", report.Stats.ErrorCount)
@@ -143,6 +172,7 @@ func handleBackendGen(args []string) {
 	source, err := backendgen.GenerateFromActions(report.Actions, report.FlowHTTPRoutes, backendgen.Config{
 		PackageName:      opts.PackageName,
 		FunctionName:     opts.FunctionName,
+		SelectorName:     opts.SelectorName,
 		ExcludePipelines: opts.ExcludePipelines,
 		ExcludeActions:   opts.ExcludeActions,
 	})
@@ -168,7 +198,51 @@ func handleBackendGen(args []string) {
 	if !opts.Quiet {
 		fmt.Printf("Generated Flow/Kernel backend bootstrap: %s (%d mounted HTTP action routes)\n", opts.Output, selectedBackendRouteCount(report.Actions, report.FlowHTTPRoutes, opts.ExcludePipelines, opts.ExcludeActions))
 		fmt.Println("The generated server accepts application bundles and an optional UI mux hook; it binds to loopback only by default.")
+		fmt.Printf("The generated action selector is %s for apps that own their own HTTP lifecycle.\n", opts.SelectorName)
 	}
+}
+
+type backendRouteManifest struct {
+	Routes []backendRouteManifestEntry `json:"routes"`
+}
+
+type backendRouteManifestEntry struct {
+	Action string `json:"action"`
+	Method string `json:"method"`
+	Path   string `json:"path"`
+}
+
+func loadBackendRouteManifest(filename string) ([]analyzer.ActionContract, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	var manifest backendRouteManifest
+	if err := decoder.Decode(&manifest); err != nil {
+		return nil, fmt.Errorf("decode manifest: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("manifest contains more than one JSON value")
+		}
+		return nil, fmt.Errorf("read manifest trailer: %w", err)
+	}
+	if manifest.Routes == nil {
+		return nil, fmt.Errorf("manifest must contain a routes array")
+	}
+	actions := make([]analyzer.ActionContract, 0, len(manifest.Routes))
+	for _, route := range manifest.Routes {
+		actions = append(actions, analyzer.ActionContract{
+			Name:        route.Action,
+			Method:      route.Method,
+			Path:        route.Path,
+			RouteSource: "manifest",
+		})
+	}
+	return actions, nil
 }
 
 func selectedBackendRouteCount(actions []analyzer.ActionContract, flowRoutes []analyzer.FlowHTTPRoute, excludedPipelines, excludedActions []string) int {
@@ -217,6 +291,8 @@ Flags:
   --out <file.go>               Output path (default: backend_server_gen.go)
   --package <name>              Generated Go package (default: main)
   --function <name>             Exported server function (default: RunGeneratedBackendServer)
+  --selector <name>             Exported app action selector (default: SelectGeneratedBackendActions)
+  --route-manifest <file.json>  Add explicit routes for dynamic action factories
   --exclude-pipeline <name>     Do not mount a route pipeline (repeatable; accepts raw or pipeline.* name)
   --exclude-action <name>       Do not mount a Go action route (repeatable)
   --force                       Overwrite an existing output file
@@ -224,10 +300,11 @@ Flags:
   --help                        Show this help
 
 Example:
-  nexssp backend --scan . --out app/backend_server_gen.go --package app --exclude-pipeline chaos_retry_probe
+  nexssp backend --scan . --route-manifest routes.json --out app/backend_server_gen.go --package app --selector SelectAppActions
 
-The generated function accepts app compiler bundles, an optional http.ServeMux configurator, and middleware.
-Only routes explicitly declared by Go actions or NFlow pipelines are mounted; OPS does not invent routes or action implementations.
-For NFlow routes, a bundle that already registers :route is reused; otherwise OPS emits a safe /api/* route modifier.
+The generated server accepts app compiler bundles, an optional http.ServeMux configurator, and middleware; the selector can be used by an app-owned server.
+Only routes explicitly declared by Go actions, NFlow pipelines, or the optional route manifest are mounted; OPS does not invent routes or action implementations.
+The optional route manifest supplies explicit method/path/action records for dynamic route factories.
+For NFlow routes, a bundle that already registers :route is reused; otherwise OPS emits a safe canonical absolute-path route modifier.
 Excluded pipelines are still compiled from the workflow but are not mounted as HTTP endpoints.`)
 }

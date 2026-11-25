@@ -64,3 +64,23 @@ func TestValidatePublicAPIAllowsArgumentFreeQueryRequest(t *testing.T) {
 		t.Fatalf("unexpected diagnostics for a bodyless GET: %+v", diagnostics)
 	}
 }
+
+func TestValidatePublicAPIStillChecksRawBlobRequestDTO(t *testing.T) {
+	report := &Report{
+		Actions: []ActionContract{{
+			Name: "reports.download", Scope: "public", Method: "GET", Path: "/reports/{id}/pdf",
+			ReqTypeName: "DownloadRequest", ResTypeName: "[]byte", Raw: true, BlobResponse: true,
+		}},
+		Structs: map[string]StructDefinition{
+			"reports.DownloadRequest": {
+				Name: "DownloadRequest", Package: "reports", Qualified: "reports.DownloadRequest",
+				Fields: []FieldContract{{Key: "filter", Type: "Record<string, unknown>"}},
+			},
+		},
+	}
+
+	diagnostics := ValidatePublicAPI(report)
+	if len(diagnostics) != 1 || !strings.Contains(diagnostics[0].Message, "DownloadRequest.filter") {
+		t.Fatalf("diagnostics = %+v; want the raw blob request's unsupported field to be rejected", diagnostics)
+	}
+}

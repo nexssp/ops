@@ -57,6 +57,19 @@ func Register() action.AnyAction {
 	if err != nil {
 		t.Fatalf("analyze SDK fixture: %v", err)
 	}
+	if err := analyzer.ApplyAPISurfaceManifest(report, analyzer.APISurfaceManifest{Actions: []analyzer.ActionContract{
+		{
+			Name: "sample.create", Scope: "public", Method: "POST", Path: "/api/sample",
+			ReqTypeName: "CreateRequest", ResTypeName: "CreateResponse",
+		},
+		{
+			Name: "sample.download", SDKMethodName: "sampleDownload", Scope: "public",
+			Method: "GET", Path: "/api/sample/{id}/download", ReqTypeName: "struct{}", ResTypeName: "[]byte",
+			Raw: true,
+		},
+	}}); err != nil {
+		t.Fatalf("apply SDK API-surface fixture: %v", err)
+	}
 	if diagnostics := analyzer.ValidatePublicAPI(report); len(diagnostics) != 0 {
 		t.Fatalf("SDK fixture has invalid public API diagnostics: %+v", diagnostics)
 	}
@@ -81,8 +94,14 @@ func Register() action.AnyAction {
 	if err != nil {
 		t.Fatalf("read generated endpoints: %v", err)
 	}
-	if !strings.Contains(string(endpoints), "sampleCreate:") {
-		t.Fatalf("generated SDK omitted sample.create endpoint:\n%s", endpoints)
+	for _, want := range []string{
+		"sampleCreate:",
+		"sampleDownload: (req: { id: string | number }): Promise<Blob>",
+		"_fetcherBlob({ method: 'GET', path: resolvePath('/api/sample/{id}/download', req) })",
+	} {
+		if !strings.Contains(string(endpoints), want) {
+			t.Fatalf("generated SDK omitted raw-blob compatibility contract %q:\n%s", want, endpoints)
+		}
 	}
 
 	for _, name := range []string{"package.json", "package-lock.json"} {

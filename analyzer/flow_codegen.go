@@ -12,6 +12,10 @@ func flowAwareReport(report *Report) *Report {
 		return nil
 	}
 	copyReport := *report
+	if report.APISurfaceManifest {
+		copyReport.Actions = append([]ActionContract(nil), report.Actions...)
+		return &copyReport
+	}
 	usage := flowSchemaUsage(report)
 	copyReport.Structs = flowSchemaStructs(report, usage)
 	copyReport.Actions = append([]ActionContract(nil), report.Actions...)

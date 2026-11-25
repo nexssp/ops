@@ -35,10 +35,11 @@ func (t TypeRef) String() string {
 }
 
 type ActionContract struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	ReqTypeName string `json:"req_type"`
-	ResTypeName string `json:"res_type"`
+	Name          string `json:"name"`
+	SDKMethodName string `json:"sdk_method_name,omitempty"`
+	Description   string `json:"description"`
+	ReqTypeName   string `json:"req_type"`
+	ResTypeName   string `json:"res_type"`
 	// FlowSchemaDriven marks an NFlow route whose HTTP boundary is declared
 	// with request/response-schema modifiers. Missing modifiers remain absent
 	// instead of being inferred from the called Go action.
@@ -51,10 +52,14 @@ type ActionContract struct {
 	Path             string             `json:"path"`
 	RouteSource      string             `json:"route_source,omitempty"`
 	TypeSource       string             `json:"type_source,omitempty"`
+	ContractSource   string             `json:"contract_source,omitempty"`
 	Transports       []TransportBinding `json:"transports,omitempty"`
 	Tags             []string           `json:"tags"`
+	Node             string             `json:"node,omitempty"`
 	Scope            string             `json:"scope"`
 	Idempotent       bool               `json:"idempotent"`
+	Deduplicated     bool               `json:"deduplicated,omitempty"`
+	Coalesced        bool               `json:"coalesced,omitempty"`
 	Timeout          time.Duration      `json:"timeout"`
 	RetryMax         int                `json:"retry_max"`
 	CacheTTL         time.Duration      `json:"cache_ttl,omitempty"`
@@ -159,14 +164,15 @@ type Diagnostic struct {
 }
 
 type Report struct {
-	ScannedFiles   int                         `json:"scanned_files"`
-	Actions        []ActionContract            `json:"actions"`
-	FlowHTTPRoutes []FlowHTTPRoute             `json:"flow_http_routes,omitempty"`
-	FlowSchemas    map[string]StructDefinition `json:"flow_schemas,omitempty"`
-	Structs        map[string]StructDefinition `json:"structs"`
-	Enums          map[string]EnumDefinition   `json:"enums,omitempty"`
-	Diagnostics    []Diagnostic                `json:"diagnostics"`
-	Stats          ReportStats                 `json:"stats"`
+	APISurfaceManifest bool                        `json:"-"`
+	ScannedFiles       int                         `json:"scanned_files"`
+	Actions            []ActionContract            `json:"actions"`
+	FlowHTTPRoutes     []FlowHTTPRoute             `json:"flow_http_routes,omitempty"`
+	FlowSchemas        map[string]StructDefinition `json:"flow_schemas,omitempty"`
+	Structs            map[string]StructDefinition `json:"structs"`
+	Enums              map[string]EnumDefinition   `json:"enums,omitempty"`
+	Diagnostics        []Diagnostic                `json:"diagnostics"`
+	Stats              ReportStats                 `json:"stats"`
 }
 
 func (r *Report) FindStruct(nameOrQualified string) (StructDefinition, bool) {

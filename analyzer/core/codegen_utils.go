@@ -262,6 +262,15 @@ func toCamelCase(s string) string {
 	return b.String()
 }
 
+// SDKMethodName returns the configured client method name or the default
+// camel-cased form of the action name.
+func SDKMethodName(action ActionContract) string {
+	if action.SDKMethodName != "" {
+		return action.SDKMethodName
+	}
+	return toCamelCase(action.Name)
+}
+
 func toPascalCase(s string) string {
 	parts := strings.FieldsFunc(s, func(r rune) bool { return r == '.' || r == '_' || r == '-' || r == '/' })
 	var b strings.Builder

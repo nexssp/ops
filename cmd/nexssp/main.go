@@ -119,6 +119,18 @@ func handleSDKGen(args []string) {
 		apiOutputDir, args = parseSDKAPIArgs(args[1:])
 	}
 	opts := parseScanArgs(args, true)
+	if opts.ParseError != "" {
+		fmt.Fprintf(os.Stderr, "❌ %s\n", opts.ParseError)
+		os.Exit(2)
+	}
+	if opts.APISurfaceManifest != "" && !apiMode {
+		fmt.Fprintln(os.Stderr, "❌ --api-manifest is only supported by 'nexssp sdk api'.")
+		os.Exit(2)
+	}
+	if opts.APIFacade != "" && !apiMode {
+		fmt.Fprintln(os.Stderr, "❌ --api-facade is only supported by 'nexssp sdk api'.")
+		os.Exit(2)
+	}
 	if apiMode {
 		opts.APIOnly = true
 		if apiOutputDir == "" {
@@ -146,6 +158,28 @@ func handleSDKGen(args []string) {
 	}
 
 	analyzer.ExcludeFlowPipelines(report, opts.ExcludePipelines)
+	if opts.APISurfaceManifest != "" {
+		manifest, err := loadSDKAPISurfaceManifest(opts.APISurfaceManifest)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+			os.Exit(1)
+		}
+		if err := analyzer.ApplyAPISurfaceManifest(report, manifest); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+			os.Exit(1)
+		}
+	}
+	if opts.ContractManifest != "" {
+		manifest, err := loadSDKContractManifest(opts.ContractManifest)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+			os.Exit(1)
+		}
+		if err := analyzer.ApplyContractManifest(report, manifest); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+			os.Exit(1)
+		}
+	}
 
 	printReportSummary(report, opts.Quiet)
 	if diagnostics := analyzer.ValidatePublicAPI(report); len(diagnostics) > 0 {
@@ -232,6 +266,17 @@ func handleSDKGen(args []string) {
 				tag = " (forced)"
 			}
 			fmt.Printf("  ├── %-56s (%d B%s)\n", f.Path, len(content), tag)
+		}
+	}
+
+	if opts.APIFacade != "" {
+		if err := writeAPICompatibilityFacade(opts.APIFacade, apiOutputDir); err != nil {
+			fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+			os.Exit(1)
+		}
+		written++
+		if !opts.Quiet {
+			fmt.Printf("  ├── %-56s (compatibility facade)\n", opts.APIFacade)
 		}
 	}
 
@@ -437,8 +482,8 @@ func printHelp() {
 		  nexssp ui:init [--force]        Scaffold SvelteKit 3 + Svelte 5 from this project
 		  nexssp backend [flags] [root...] Generate a Flow/Kernel HTTP backend from action routes
 	  nexssp sdk [flags] [root...]    Generate TypeScript + Zod SDK from action contracts
-	  nexssp sdk api [apiDir] [--scan <dir>...]
-	                                  Generate only client.ts, types.ts, endpoints.ts, and index.ts
+		nexssp sdk api [apiDir] [--scan <dir>...]
+		                                  Generate API modules; optional surface/contract manifest/facade
 	  nexssp actions [flags] [root...] [filter]
 	                                  List all registered actions and HTTP routes
 	nexssp analyze [flags] [root...]
@@ -464,6 +509,9 @@ SDK flags:
 	                 Unsafe public TypeScript contracts are never force-generated.
 		--prune-generated  Remove stale generated files only under _gen/stores/{entities,forms,streams,system}
 		--exclude-pipeline <name>  Omit an NFlow pipeline from SDK output (repeatable)
+		--contract-manifest <file>  Supply explicit request/response wire types by action name
+		--api-manifest <file>       sdk api only: select public routes and supply complete API contracts
+		--api-facade <file.ts>      sdk api only: emit a stable single-file re-export facade
 		--api-only  Legacy full-SDK mode: limit DTOs to routed public actions
 		sdk api [apiDir]  Write only the API client files directly into apiDir (default: ui/src/lib/_gen/api)
 		<uiLibDir>     Output root (default: ui/src/lib)
