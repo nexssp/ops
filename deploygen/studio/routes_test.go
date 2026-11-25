@@ -87,3 +87,69 @@ func TestCatalogMergesGoActionsAndAnalyzerNFlowRoutes(t *testing.T) {
 		t.Errorf("NFlow response fields = %+v", flowEntry.ResFields)
 	}
 }
+
+func TestWorkbenchAPIActionsExcludeHostOwnedRoutes(t *testing.T) {
+	actions := NewService(nil).WorkbenchAPIActions()
+	if len(actions) != 4 {
+		t.Fatalf("workbench API action count = %d, want 4", len(actions))
+	}
+
+	for _, route := range []struct{ method, path string }{
+		{"GET", "/studio/api/actions"},
+		{"POST", "/studio/api/execute"},
+		{"GET", "/studio/api/history"},
+		{"POST", "/studio/api/ai/scenario"},
+	} {
+		if !hasStudioRoute(actions, route.method, route.path) {
+			t.Errorf("workbench API actions do not contain %s %s", route.method, route.path)
+		}
+	}
+
+	for _, route := range []struct{ method, path string }{
+		{"GET", "/studio"},
+		{"GET", "/studio/"},
+		{"GET", "/system/security"},
+	} {
+		if hasStudioRoute(actions, route.method, route.path) {
+			t.Errorf("workbench API actions unexpectedly contain host-owned route %s %s", route.method, route.path)
+		}
+	}
+}
+
+func TestActionsRetainCompleteStudioSurface(t *testing.T) {
+	actions := NewService(nil).Actions()
+	for _, route := range []struct{ method, path string }{
+		{"GET", "/studio"},
+		{"GET", "/studio/"},
+		{"GET", "/studio/api/actions"},
+		{"POST", "/studio/api/execute"},
+		{"GET", "/studio/api/history"},
+		{"POST", "/studio/api/ai/scenario"},
+		{"GET", "/system/security"},
+	} {
+		if !hasStudioRoute(actions, route.method, route.path) {
+			t.Errorf("default Studio actions no longer contain %s %s", route.method, route.path)
+		}
+	}
+}
+
+func hasStudioRoute(actions []action.AnyAction, method, path string) bool {
+	for _, act := range actions {
+		if act == nil {
+			continue
+		}
+		for _, binding := range act.GetBindings() {
+			switch route := binding.(type) {
+			case thttp.HTTPRoute:
+				if route.Method == method && route.Path == path {
+					return true
+				}
+			case thttp.RawHTTPHandler:
+				if route.Method == method && route.Path == path {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}

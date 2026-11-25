@@ -26,7 +26,7 @@ func ValidatePublicAPI(report *Report) []Diagnostic {
 		if action.Scope != "public" || action.Path == "" {
 			continue
 		}
-		if action.Streaming || action.Raw {
+		if action.Streaming || (action.Raw && !action.BlobResponse) {
 			continue
 		}
 

@@ -9,13 +9,14 @@ import (
 
 func TestGenerateReusableBackendAndExcludesOptionalRoute(t *testing.T) {
 	routes := []analyzer.FlowHTTPRoute{
-		{Pipeline: "items_list", Method: "GET", Path: "/api/items"},
+		{Pipeline: "items_list", Method: "GET", Path: "/items"},
 		{Pipeline: "pipeline.chaos_probe", Method: "POST", Path: "/api/dev/chaos"},
 	}
 
 	source, err := Generate(routes, Config{
 		PackageName:      "catalog",
 		FunctionName:     "RunCatalogBackend",
+		SelectorName:     "SelectCatalogBackendActions",
 		ExcludePipelines: []string{"chaos_probe"},
 	})
 	if err != nil {
@@ -25,8 +26,9 @@ func TestGenerateReusableBackendAndExcludesOptionalRoute(t *testing.T) {
 	for _, want := range []string{
 		"package catalog",
 		"func RunCatalogBackend(",
+		"func SelectCatalogBackendActions(",
 		"pipeline.items_list",
-		"/api/items",
+		"/items",
 		"opsGeneratedBackendHasRouteModifier",
 		"configureMux func(*http.ServeMux)",
 	} {
@@ -47,10 +49,16 @@ func TestGenerateRejectsUnsafeOrUnsupportedRoutes(t *testing.T) {
 		name  string
 		route analyzer.FlowHTTPRoute
 	}{
-		{name: "non-api path", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: "/admin"}},
+		{name: "relative path", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: "admin"}},
+		{name: "double leading slash", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: "//admin"}},
+		{name: "repeated internal slash", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: "/api//items"}},
 		{name: "non-canonical path", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: "/api/a/../b"}},
+		{name: "traversal with trailing slash", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: "/api/a/../"}},
 		{name: "query string", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: "/api/items?all=1"}},
-		{name: "unsupported method", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "PATCH", Path: "/api/items"}},
+		{name: "fragment", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: "/api/items#top"}},
+		{name: "backslash", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: `/api/items\secret`}},
+		{name: "whitespace", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: "/api/item name"}},
+		{name: "unsupported method", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "BREW", Path: "/api/items"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -58,6 +66,39 @@ func TestGenerateRejectsUnsafeOrUnsupportedRoutes(t *testing.T) {
 				t.Fatal("Generate unexpectedly accepted invalid route")
 			}
 		})
+	}
+}
+
+func TestGenerateAcceptsStandardHTTPMethodsAndAbsolutePaths(t *testing.T) {
+	methods := []string{"CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"}
+	actions := make([]analyzer.ActionContract, 0, len(methods))
+	for _, method := range methods {
+		actions = append(actions, analyzer.ActionContract{
+			Name:        "catalog." + strings.ToLower(method),
+			Method:      method,
+			Path:        "/admin/catalog/{id}",
+			RouteSource: "go",
+		})
+	}
+	actions = append(actions, analyzer.ActionContract{
+		Name:        "catalog.incoming",
+		Method:      "GET",
+		Path:        "/api/v1/incoming/",
+		RouteSource: "go",
+	})
+
+	source, err := GenerateFromActions(actions, nil, Config{})
+	if err != nil {
+		t.Fatalf("GenerateFromActions: %v", err)
+	}
+	generated := string(source)
+	for _, method := range methods {
+		if !strings.Contains(generated, `Method: "`+method+`", Path: "/admin/catalog/{id}"`) {
+			t.Errorf("generated routes missing method %q:\n%s", method, generated)
+		}
+	}
+	if !strings.Contains(generated, `Path: "/api/v1/incoming/"`) {
+		t.Errorf("generated routes missing valid trailing-slash path:\n%s", generated)
 	}
 }
 
@@ -101,6 +142,7 @@ func TestGenerateFromActionsMountsDeclaredRoutesOnly(t *testing.T) {
 		`Action: "pipeline.catalog_list"`,
 		`compiled.Resolver.Action(route.Action)`,
 		"RunCatalogBackend(",
+		"SelectGeneratedBackendActions(",
 	} {
 		if !strings.Contains(generated, want) {
 			t.Errorf("generated source missing %q\n%s", want, generated)

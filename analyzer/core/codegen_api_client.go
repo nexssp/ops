@@ -26,6 +26,7 @@ export enum ErrorKind {
 }
 
 export type IsoDateString = string;
+export type EmptyStruct = Record<string, never>;
 
 export interface ValidationDetail {
   field: string;

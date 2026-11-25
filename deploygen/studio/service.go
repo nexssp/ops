@@ -102,8 +102,24 @@ func (s *Service) actionSnapshot() ([]action.AnyAction, map[string]action.AnyAct
 }
 
 func (s *Service) Actions() []action.AnyAction {
+	actions := []action.AnyAction{studioUIAction(s)}
+	actions = append(actions, s.WorkbenchAPIActions()...)
+	actions = append(actions,
+		action.New("studio.api.security", s.handleSecurity).
+			System().Tag("infra", "studio").
+			Route(thttp.GET("/system/security")).
+			Build(),
+	)
+	return actions
+}
+
+// WorkbenchAPIActions returns the Studio catalog, execution, history, and
+// scenario endpoints without the embedded UI or /system/security reflection
+// endpoint. Hosts that provide their own UI or security route can compose these
+// actions without conflicting with those host-owned paths. Actions retains the
+// complete default Studio surface.
+func (s *Service) WorkbenchAPIActions() []action.AnyAction {
 	return []action.AnyAction{
-		studioUIAction(s),
 		action.New("studio.api.actions", s.handleActions).
 			System().Tag("infra", "studio").
 			Route(thttp.GET("/studio/api/actions")).
@@ -119,10 +135,6 @@ func (s *Service) Actions() []action.AnyAction {
 		action.New("studio.api.fuzz", s.handleFuzz).
 			System().Tag("infra", "studio").
 			Route(thttp.POST("/studio/api/ai/scenario")).
-			Build(),
-		action.New("studio.api.security", s.handleSecurity).
-			System().Tag("infra", "studio").
-			Route(thttp.GET("/system/security")).
 			Build(),
 	}
 }

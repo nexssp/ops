@@ -14,6 +14,10 @@ func GenerateTypeScriptAPI(report *Report) []GeneratedFile {
 	return core.GenerateTypeScriptAPI(flowAwareReport(report))
 }
 
+func GenerateTypeScriptAPICompatibilityFacade(indexImportPath, endpointsImportPath string) []byte {
+	return core.GenerateTypeScriptAPICompatibilityFacade(indexImportPath, endpointsImportPath)
+}
+
 func ValidatePublicAPI(report *Report) []Diagnostic {
 	return validateFlowPublicAPI(report)
 }

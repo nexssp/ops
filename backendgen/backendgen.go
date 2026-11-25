@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"go/format"
 	"go/token"
+	"net/http"
 	"path"
 	"sort"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 type Config struct {
 	PackageName      string
 	FunctionName     string
+	SelectorName     string
 	ExcludePipelines []string
 	ExcludeActions   []string
 }
@@ -93,11 +95,17 @@ func generate(routes []generatedRoute, config Config) ([]byte, error) {
 	if config.FunctionName == "" {
 		config.FunctionName = "RunGeneratedBackendServer"
 	}
+	if config.SelectorName == "" {
+		config.SelectorName = "SelectGeneratedBackendActions"
+	}
 	if !validIdentifier(config.PackageName) {
 		return nil, fmt.Errorf("invalid Go package name %q", config.PackageName)
 	}
 	if !validIdentifier(config.FunctionName) || !unicode.IsUpper([]rune(config.FunctionName)[0]) {
 		return nil, fmt.Errorf("function name %q must be an exported Go identifier", config.FunctionName)
+	}
+	if !validIdentifier(config.SelectorName) || !unicode.IsUpper([]rune(config.SelectorName)[0]) {
+		return nil, fmt.Errorf("selector name %q must be an exported Go identifier", config.SelectorName)
 	}
 
 	excludedPipelines := make(map[string]bool, len(config.ExcludePipelines))
@@ -185,7 +193,10 @@ func generate(routes []generatedRoute, config Config) ([]byte, error) {
 			strconv.Quote(route.Action), strconv.Quote(route.Method), strconv.Quote(route.Path))
 	}
 	source.WriteString("}\n")
-	runtime := strings.ReplaceAll(generatedRuntime, "@@FUNCTION_NAME@@", config.FunctionName)
+	runtime := strings.NewReplacer(
+		"@@FUNCTION_NAME@@", config.FunctionName,
+		"@@SELECTOR_NAME@@", config.SelectorName,
+	).Replace(generatedRuntime)
 	source.WriteString(runtime)
 
 	formatted, err := format.Source([]byte(source.String()))
@@ -209,14 +220,31 @@ func normalizePipelineName(name string) string {
 
 func validateRoute(route generatedRoute) error {
 	switch route.Method {
-	case "GET", "POST", "PUT", "DELETE":
+	case http.MethodConnect, http.MethodDelete, http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPatch, http.MethodPost, http.MethodPut, http.MethodTrace:
 	default:
-		return fmt.Errorf("action %q uses unsupported HTTP method %q; generated backends support GET, POST, PUT, and DELETE", route.Action, route.Method)
+		return fmt.Errorf("action %q uses unsupported HTTP method %q; generated backends support CONNECT, DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, and TRACE", route.Action, route.Method)
 	}
-	if !strings.HasPrefix(route.Path, "/api/") || path.Clean(route.Path) != route.Path || strings.ContainsAny(route.Path, "?#\\ \t\r\n") {
-		return fmt.Errorf("action %q has unsafe route path %q; paths must be canonical /api/* paths without query, fragment, backslash, or whitespace", route.Action, route.Path)
+	if !validRoutePath(route.Path) {
+		return fmt.Errorf("action %q has unsafe route path %q; paths must be canonical absolute paths without query, fragment, backslash, or whitespace", route.Action, route.Path)
 	}
 	return nil
+}
+
+func validRoutePath(routePath string) bool {
+	if routePath == "" || !strings.HasPrefix(routePath, "/") || strings.HasPrefix(routePath, "//") {
+		return false
+	}
+	canonical := path.Clean(routePath) == routePath
+	if !canonical && strings.HasSuffix(routePath, "/") {
+		trimmed := strings.TrimSuffix(routePath, "/")
+		canonical = trimmed != "" && path.Clean(trimmed) == trimmed
+	}
+	if !canonical || strings.ContainsAny(routePath, "?#\\") || strings.IndexFunc(routePath, func(r rune) bool {
+		return unicode.IsControl(r) || unicode.IsSpace(r)
+	}) >= 0 {
+		return false
+	}
+	return true
 }
 
 const generatedImports = `import (
@@ -229,6 +257,7 @@ const generatedImports = `import (
 	"path"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/nexssp/flow/compiler"
 	"github.com/nexssp/flow/extensions/require"
@@ -240,6 +269,54 @@ const generatedImports = `import (
 `
 
 const generatedRuntime = `
+// @@SELECTOR_NAME@@ selects app-owned actions with the generated HTTP routes.
+// Use this with an app's own transport when it already owns server lifecycle.
+func @@SELECTOR_NAME@@(appActions []action.AnyAction) ([]action.AnyAction, error) {
+	byName := make(map[string]action.AnyAction, len(appActions))
+	for _, appAction := range appActions {
+		if appAction == nil || appAction.Describe() == nil {
+			continue
+		}
+		name := appAction.Describe().Name
+		if _, exists := byName[name]; exists {
+			return nil, fmt.Errorf("duplicate registered application action %q", name)
+		}
+		byName[name] = appAction
+	}
+
+	selected := make([]action.AnyAction, 0, len(opsGeneratedBackendRoutes))
+	for _, route := range opsGeneratedBackendRoutes {
+		if strings.HasPrefix(route.Action, "pipeline.") {
+			continue
+		}
+		appAction, ok := byName[route.Action]
+		if !ok {
+			return nil, fmt.Errorf("generated backend action %q was not registered by the application", route.Action)
+		}
+		if !opsGeneratedBackendActionHasRoute(appAction, route.Method, route.Path) {
+			return nil, fmt.Errorf("registered action %q no longer declares generated route %s %s; regenerate the backend", route.Action, route.Method, route.Path)
+		}
+		selected = append(selected, appAction)
+	}
+	return selected, nil
+}
+
+func opsGeneratedBackendActionHasRoute(appAction action.AnyAction, method, routePath string) bool {
+	for _, binding := range appAction.GetBindings() {
+		switch route := binding.(type) {
+		case thttp.HTTPRoute:
+			if route.Method == method && route.Path == routePath {
+				return true
+			}
+		case thttp.RawHTTPHandler:
+			if route.Method == method && route.Path == routePath {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // @@FUNCTION_NAME@@ compiles workflowPath once and mounts only the generated
 // HTTP routes for analyzed actions. appBundles supplies application actions/extensions;
 // configureMux can attach a UI handler, and middleware follows net/http shape.
@@ -383,22 +460,30 @@ func opsGeneratedBackendApplyHTTPRoute(builder *action.Builder[any, any], raw st
 		return fmt.Errorf("expected METHOD /api/path")
 	}
 	method, routePath := strings.ToUpper(parts[0]), parts[1]
-	if !strings.HasPrefix(routePath, "/api/") || path.Clean(routePath) != routePath || strings.ContainsAny(routePath, "?#\\") {
-		return fmt.Errorf("route must be a canonical /api/* path without query, fragment, or backslash")
+	if !opsGeneratedBackendSafeRoutePath(routePath) {
+		return fmt.Errorf("route must be a canonical absolute path without query, fragment, backslash, or whitespace")
 	}
 	switch method {
-	case http.MethodGet:
-		builder.Route(thttp.GET(routePath))
-	case http.MethodPost:
-		builder.Route(thttp.POST(routePath))
-	case http.MethodPut:
-		builder.Route(thttp.PUT(routePath))
-	case http.MethodDelete:
-		builder.Route(thttp.DELETE(routePath))
+	case http.MethodConnect, http.MethodDelete, http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPatch, http.MethodPost, http.MethodPut, http.MethodTrace:
+		builder.Route(thttp.HTTPRoute{Method: method, Path: routePath})
 	default:
-		return fmt.Errorf("method %q is not allowed; use GET, POST, PUT, or DELETE", method)
+		return fmt.Errorf("method %q is not a supported standard HTTP method", method)
 	}
 	return nil
+}
+
+func opsGeneratedBackendSafeRoutePath(routePath string) bool {
+	if routePath == "" || !strings.HasPrefix(routePath, "/") || strings.HasPrefix(routePath, "//") {
+		return false
+	}
+	canonical := path.Clean(routePath) == routePath
+	if !canonical && strings.HasSuffix(routePath, "/") {
+		trimmed := strings.TrimSuffix(routePath, "/")
+		canonical = trimmed != "" && path.Clean(trimmed) == trimmed
+	}
+	return canonical && !strings.ContainsAny(routePath, "?#\\") && strings.IndexFunc(routePath, func(r rune) bool {
+		return unicode.IsControl(r) || unicode.IsSpace(r)
+	}) < 0
 }
 
 func opsGeneratedBackendIsLoopback(addr string) bool {

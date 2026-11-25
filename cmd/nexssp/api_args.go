@@ -14,6 +14,12 @@ func parseSDKAPIArgs(args []string) (outputDir string, scanArgs []string) {
 				i++
 				scanArgs = append(scanArgs, args[i])
 			}
+		case arg == "--contract-manifest" || arg == "--api-manifest" || arg == "--api-facade":
+			scanArgs = append(scanArgs, arg)
+			if i+1 < len(args) && args[i+1] != "" && !strings.HasPrefix(args[i+1], "-") {
+				i++
+				scanArgs = append(scanArgs, args[i])
+			}
 		case strings.HasPrefix(arg, "--scan=") || strings.HasPrefix(arg, "--exclude-pipeline=") || strings.HasPrefix(arg, "-"):
 			scanArgs = append(scanArgs, arg)
 		default:

@@ -44,6 +44,9 @@ nexssp sdk --scan .
 # Generate only the public API client files into this API folder
 nexssp sdk api ./ui/src/lib/_gen/api
 
+# Use an explicit public surface when routes are registered dynamically
+nexssp sdk api ./ui/src/lib/_gen/api --scan ./actions --api-manifest ./sdk-api.json
+
 # Scaffold the SvelteKit UI or the Studio route
 nexssp ui:init
 nexssp ui:studio
@@ -61,6 +64,8 @@ For a hands-on example, see the [incident-triage Studio walkthrough](examples/st
 The SDK generator inspects the selected source tree and preserves user-edited extension files by default. Use `nexssp sdk --force` only when you intend to overwrite those generated outputs. The UI scaffold derives its display/package name from the current project directory and does not require a named system's API contract. Generated transport clients do not assume authentication or call token-refresh endpoints; add auth only in the application, with caller-supplied headers or a custom fetcher.
 
 When an NFlow HTTP pipeline binds `:request-schema` or `:response-schema`, the public SDK types and endpoint signatures come from those NFlow `@schema` declarations rather than conflicting Go-AST DTOs. Response schemas may be a declared `@schema`, a supported scalar, or a top-level array such as `[]Widget` or `[]string`; the array is emitted as an array, not wrapped in an object. Bodyless routes stay argument-free, and unsupported or unresolved contracts—including untyped fields such as `any`—are reported before any files are written instead of being widened or silently omitted. Routes without explicit NFlow boundary schemas continue to use their analyzed action contracts.
+
+For route factories or APIs whose public surface differs from the scanned server routes, `nexssp sdk api --api-manifest <file.json>` uses the manifest's `actions` array as the complete public API surface. Each entry uses the analyzer action-contract fields (`name`, `method`, `path`, `req_type`, `res_type`, and optional metadata such as `roles`, `features`, `raw`, and `multipart`); `sdk_method_name` can preserve an established TypeScript method name. The manifest may add routes that are created dynamically and omits scanned routes not intended for the public SDK. Raw routes marked with `blob_response: true` emit `Promise<Blob>` methods through the configurable blob fetcher; raw non-blob and streaming routes remain metadata-only. Request/response DTOs still need to be present in the selected source roots or supplied as explicit contract fields, and normal public-contract validation still applies.
 
 **Existing UI scaffolds:** `nexssp ui:init` now emits a generic SvelteKit shell and no longer generates the legacy login/auth/client/router templates. Existing files are preserved unless `--force` is used; migrate or remove obsolete files yourself, and back up local edits before forcing replacements.
 
