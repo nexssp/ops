@@ -180,6 +180,7 @@ func (a *Analyzer) buildReport() *Report {
 	}
 
 	a.detectDuplicateRoutes(filteredActions)
+	a.detectDuplicateActionNames(filteredActions)
 
 	filteredDiags := a.filterDiagnostics()
 

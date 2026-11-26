@@ -24,6 +24,31 @@ func (a *Analyzer) filterDiagnostics() []Diagnostic {
 	return out
 }
 
+func (a *Analyzer) detectDuplicateActionNames(actions []ActionContract) {
+	firstByName := make(map[string]ActionContract, len(actions))
+	for _, action := range actions {
+		if action.Name == "" {
+			continue
+		}
+
+		first, exists := firstByName[action.Name]
+		if !exists {
+			firstByName[action.Name] = action
+			continue
+		}
+
+		a.diagnostics = append(a.diagnostics, Diagnostic{
+			Severity:   SeverityError,
+			Rule:       "actions/duplicate-name",
+			Action:     action.Name,
+			File:       action.SourceFile,
+			Line:       action.SourceLine,
+			Message:    fmt.Sprintf("Action name %q is declared more than once; first declaration is at %s:%d and this declaration is at %s:%d.", action.Name, first.SourceFile, first.SourceLine, action.SourceFile, action.SourceLine),
+			Suggestion: "Give each action contract a unique name, or declare its transports on a single action.",
+		})
+	}
+}
+
 func (a *Analyzer) detectDuplicateRoutes(actions []ActionContract) {
 	byRoute := make(map[string]string)
 
