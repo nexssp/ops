@@ -39,7 +39,7 @@ func (a *Analyzer) inspectPipeline(rootCall *ast.CallExpr, filePath string, pkgI
 		switch method {
 		case "New":
 			if len(args) > 0 {
-				contract.Name = cleanLiteral(exprToString(args[0]))
+				contract.Name = stringLiteralArg(args, 0)
 			}
 			if len(args) > 1 {
 				if funcLit, ok := args[1].(*ast.FuncLit); ok {

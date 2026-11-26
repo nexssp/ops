@@ -73,7 +73,7 @@ func detectBindings(e ast.Expr) []TransportBinding {
 func detectTHTTP(base fluentStep, modifiers []fluentStep) []TransportBinding {
 	switch base.method {
 	case "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD":
-		path := argString(base.args, 0)
+		path := stringLiteralArg(base.args, 0)
 		if path == "" {
 			return nil
 		}
@@ -84,7 +84,7 @@ func detectTHTTP(base fluentStep, modifiers []fluentStep) []TransportBinding {
 		}}
 
 	case "Stream":
-		path := argString(base.args, 0)
+		path := stringLiteralArg(base.args, 0)
 		if path == "" {
 			return nil
 		}
@@ -95,7 +95,7 @@ func detectTHTTP(base fluentStep, modifiers []fluentStep) []TransportBinding {
 		}
 		for _, mod := range modifiers {
 			if mod.method == "WithChannel" {
-				if ch := argString(mod.args, 0); ch != "" {
+				if ch := stringLiteralArg(mod.args, 0); ch != "" {
 					if b.Meta == nil {
 						b.Meta = map[string]string{}
 					}
@@ -106,8 +106,8 @@ func detectTHTTP(base fluentStep, modifiers []fluentStep) []TransportBinding {
 		return []TransportBinding{b}
 
 	case "RawHandler":
-		method := normaliseHTTPMethod(argString(base.args, 0))
-		path := argString(base.args, 1)
+		method := httpMethodArg(base.args, 0)
+		path := stringLiteralArg(base.args, 1)
 		if method == "" || path == "" {
 			return nil
 		}
@@ -338,6 +338,35 @@ func argString(args []ast.Expr, i int) string {
 		return ""
 	}
 	return cleanLiteral(exprToString(args[i]))
+}
+
+func stringLiteralArg(args []ast.Expr, i int) string {
+	if i < 0 || i >= len(args) {
+		return ""
+	}
+	lit, ok := args[i].(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return ""
+	}
+	value, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		return ""
+	}
+	return value
+}
+
+func httpMethodArg(args []ast.Expr, i int) string {
+	if method := stringLiteralArg(args, i); method != "" {
+		return normaliseHTTPMethod(method)
+	}
+	if i < 0 || i >= len(args) {
+		return ""
+	}
+	selector, ok := args[i].(*ast.SelectorExpr)
+	if !ok || !strings.HasPrefix(selector.Sel.Name, "Method") {
+		return ""
+	}
+	return normaliseHTTPMethod(strings.TrimPrefix(selector.Sel.Name, "Method"))
 }
 
 func argStrings(args []ast.Expr, from int) []string {

@@ -221,6 +221,10 @@ func normalizePipelineName(name string) string {
 func validateRoute(route generatedRoute) error {
 	switch route.Method {
 	case http.MethodConnect, http.MethodDelete, http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodPatch, http.MethodPost, http.MethodPut, http.MethodTrace:
+	case "SSE":
+		if route.Source == "pipeline" || route.Source == "nflow" {
+			return fmt.Errorf("Flow pipeline action %q uses unsupported HTTP method %q; SSE bindings must be supplied as app-owned actions", route.Action, route.Method)
+		}
 	default:
 		return fmt.Errorf("action %q uses unsupported HTTP method %q; generated backends support CONNECT, DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT, and TRACE", route.Action, route.Method)
 	}
@@ -308,11 +312,15 @@ func opsGeneratedBackendActionHasRoute(appAction action.AnyAction, method, route
 			if route.Method == method && route.Path == routePath {
 				return true
 			}
-		case thttp.RawHTTPHandler:
-			if route.Method == method && route.Path == routePath {
-				return true
+			case thttp.RawHTTPHandler:
+				if route.Method == method && route.Path == routePath {
+					return true
+				}
+			case thttp.SSERoute:
+				if method == "SSE" && route.Path == routePath {
+					return true
+				}
 			}
-		}
 	}
 	return false
 }

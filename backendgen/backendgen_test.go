@@ -59,6 +59,7 @@ func TestGenerateRejectsUnsafeOrUnsupportedRoutes(t *testing.T) {
 		{name: "backslash", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: `/api/items\secret`}},
 		{name: "whitespace", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "GET", Path: "/api/item name"}},
 		{name: "unsupported method", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "BREW", Path: "/api/items"}},
+		{name: "SSE flow route", route: analyzer.FlowHTTPRoute{Pipeline: "pipeline.x", Method: "SSE", Path: "/api/events"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -162,5 +163,28 @@ func TestGenerateFromActionsRejectsIncompleteRouteAndUnknownExclusion(t *testing
 	actions := []analyzer.ActionContract{{Name: "catalog.list", Method: "GET", Path: "/api/items", RouteSource: "go"}}
 	if _, err := GenerateFromActions(actions, nil, Config{ExcludeActions: []string{"missing.action"}}); err == nil || !strings.Contains(err.Error(), "was not found") {
 		t.Fatalf("unknown action exclusion error = %v", err)
+	}
+}
+
+func TestGenerateFromActionsAcceptsAppOwnedSSERoute(t *testing.T) {
+	source, err := GenerateFromActions([]analyzer.ActionContract{{
+		Name:        "monitor.stream",
+		Method:      "SSE",
+		Path:        "/monitor/stream",
+		RouteSource: "go",
+		Streaming:   true,
+	}}, nil, Config{})
+	if err != nil {
+		t.Fatalf("GenerateFromActions: %v", err)
+	}
+	generated := string(source)
+	for _, want := range []string{
+		`Action: "monitor.stream", Method: "SSE", Path: "/monitor/stream"`,
+		"case thttp.SSERoute:",
+		`method == "SSE" && route.Path == routePath`,
+	} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated source missing %q", want)
+		}
 	}
 }
