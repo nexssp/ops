@@ -7,6 +7,7 @@ require (
 	github.com/nexssp/flow v0.105.0
 	github.com/nexssp/kernel v1.0.0
 	github.com/nexssp/observability v0.11.0
+	github.com/nexssp/srcpack v0.9.1-0.20261126214225-fa81df45636d
 	github.com/nexssp/transport v0.22.1
 )
 
