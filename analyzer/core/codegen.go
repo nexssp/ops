@@ -71,7 +71,7 @@ func generateTypeScriptSDK(report *Report, includeExposed bool) []GeneratedFile 
 	files = append(files,
 		GeneratedFile{
 			Path:      "_gen/api/client.ts",
-			Content:   generateClientFile(),
+			Content:   generateClientFile(report.APIClientConfig),
 			Overwrite: true,
 		},
 		GeneratedFile{

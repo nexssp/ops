@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestValidatePublicAPIRejectsUntypedReachableFields(t *testing.T) {
+func TestValidatePublicAPIAllowsSafeRecordAndRejectsOtherUntypedFields(t *testing.T) {
 	report := &Report{
 		Actions: []ActionContract{{
 			Name: "records.create", Scope: "public", Method: "POST", Path: "/records",
@@ -14,7 +14,7 @@ func TestValidatePublicAPIRejectsUntypedReachableFields(t *testing.T) {
 		Structs: map[string]StructDefinition{
 			"records.CreateRequest": {
 				Name: "CreateRequest", Package: "records", Qualified: "records.CreateRequest", SourceFile: "records/types.go",
-				Fields: []FieldContract{{Key: "metadata", Type: "Record<string, unknown>"}},
+				Fields: []FieldContract{{Key: "metadata", Type: "Record<string, unknown>"}, {Key: "unsafe", Type: "unknown"}},
 			},
 			"records.CreateResponse": {
 				Name: "CreateResponse", Package: "records", Qualified: "records.CreateResponse",
@@ -24,8 +24,8 @@ func TestValidatePublicAPIRejectsUntypedReachableFields(t *testing.T) {
 	}
 
 	diagnostics := ValidatePublicAPI(report)
-	if len(diagnostics) != 1 || !strings.Contains(diagnostics[0].Message, "records.CreateRequest.metadata") {
-		t.Fatalf("diagnostics = %+v; want one error for the nested unknown field", diagnostics)
+	if len(diagnostics) != 1 || !strings.Contains(diagnostics[0].Message, "records.CreateRequest.unsafe") {
+		t.Fatalf("diagnostics = %+v; want only arbitrary unknown rejected", diagnostics)
 	}
 	if diagnostics[0].Rule != "sdk/public-contract" || diagnostics[0].File != "records/types.go" {
 		t.Fatalf("diagnostic = %+v; want public-contract rule and source file", diagnostics[0])
@@ -80,7 +80,7 @@ func TestValidatePublicAPIStillChecksRawBlobRequestDTO(t *testing.T) {
 	}
 
 	diagnostics := ValidatePublicAPI(report)
-	if len(diagnostics) != 1 || !strings.Contains(diagnostics[0].Message, "DownloadRequest.filter") {
-		t.Fatalf("diagnostics = %+v; want the raw blob request's unsupported field to be rejected", diagnostics)
+	if len(diagnostics) != 0 {
+		t.Fatalf("diagnostics = %+v; safe Record should be accepted for a raw blob request", diagnostics)
 	}
 }

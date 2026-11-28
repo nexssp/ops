@@ -43,37 +43,39 @@ type ActionContract struct {
 	// FlowSchemaDriven marks an NFlow route whose HTTP boundary is declared
 	// with request/response-schema modifiers. Missing modifiers remain absent
 	// instead of being inferred from the called Go action.
-	FlowSchemaDriven bool               `json:"flow_schema_driven,omitempty"`
-	ReqSchemaName    string             `json:"request_schema,omitempty"`
-	ResSchemaName    string             `json:"response_schema,omitempty"`
-	ReqType          TypeRef            `json:"req_type_ref,omitempty"`
-	ResType          TypeRef            `json:"res_type_ref,omitempty"`
-	Method           string             `json:"method"`
-	Path             string             `json:"path"`
-	RouteSource      string             `json:"route_source,omitempty"`
-	TypeSource       string             `json:"type_source,omitempty"`
-	ContractSource   string             `json:"contract_source,omitempty"`
-	Transports       []TransportBinding `json:"transports,omitempty"`
-	Tags             []string           `json:"tags"`
-	Node             string             `json:"node,omitempty"`
-	Scope            string             `json:"scope"`
-	Idempotent       bool               `json:"idempotent"`
-	Deduplicated     bool               `json:"deduplicated,omitempty"`
-	Coalesced        bool               `json:"coalesced,omitempty"`
-	Timeout          time.Duration      `json:"timeout"`
-	RetryMax         int                `json:"retry_max"`
-	CacheTTL         time.Duration      `json:"cache_ttl,omitempty"`
-	RateLimit        string             `json:"rate_limit,omitempty"`
-	ConcurrencyLimit int32              `json:"concurrency_limit,omitempty"`
-	Permissions      []string           `json:"permissions"`
-	Roles            []string           `json:"roles"`
-	Features         []string           `json:"features"`
-	ReqFields        []FieldContract    `json:"req_fields"`
-	ResFields        []FieldContract    `json:"res_fields"`
-	SourceFile       string             `json:"source_file"`
-	SourceLine       int                `json:"source_line"`
-	Streaming        bool               `json:"streaming,omitempty"`
-	Raw              bool               `json:"raw,omitempty"`
+	FlowSchemaDriven         bool               `json:"flow_schema_driven,omitempty"`
+	ReqSchemaName            string             `json:"request_schema,omitempty"`
+	ResSchemaName            string             `json:"response_schema,omitempty"`
+	ReqType                  TypeRef            `json:"req_type_ref,omitempty"`
+	ResType                  TypeRef            `json:"res_type_ref,omitempty"`
+	Method                   string             `json:"method"`
+	Path                     string             `json:"path"`
+	RouteSource              string             `json:"route_source,omitempty"`
+	TypeSource               string             `json:"type_source,omitempty"`
+	ContractSource           string             `json:"contract_source,omitempty"`
+	Transports               []TransportBinding `json:"transports,omitempty"`
+	Tags                     []string           `json:"tags"`
+	Node                     string             `json:"node,omitempty"`
+	Scope                    string             `json:"scope"`
+	Idempotent               bool               `json:"idempotent"`
+	Deduplicated             bool               `json:"deduplicated,omitempty"`
+	Coalesced                bool               `json:"coalesced,omitempty"`
+	Timeout                  time.Duration      `json:"timeout"`
+	RetryMax                 int                `json:"retry_max"`
+	CacheTTL                 time.Duration      `json:"cache_ttl,omitempty"`
+	RateLimit                string             `json:"rate_limit,omitempty"`
+	ConcurrencyLimit         int32              `json:"concurrency_limit,omitempty"`
+	Permissions              []string           `json:"permissions"`
+	Roles                    []string           `json:"roles"`
+	Features                 []string           `json:"features"`
+	ReqFields                []FieldContract    `json:"req_fields"`
+	ResFields                []FieldContract    `json:"res_fields"`
+	SourceFile               string             `json:"source_file"`
+	SourceLine               int                `json:"source_line"`
+	Streaming                bool               `json:"streaming,omitempty"`
+	Raw                      bool               `json:"raw,omitempty"`
+	RequestOptional          *bool              `json:"request_optional,omitempty"`
+	ValidateMultipartRequest bool               `json:"validate_multipart_request,omitempty"`
 
 	// Multipart is true when a request field has a `form:"..."` tag on a
 	// []byte or transport FormFile value, so the client uses multipart/form-data.
@@ -118,7 +120,45 @@ type FieldContract struct {
 
 	// Multipart marks a field transported as a file part in a multipart/form-data
 	// request. The analyzer sets it for form-tagged []byte or transport FormFile fields.
-	Multipart bool `json:"multipart,omitempty"`
+	Multipart             bool            `json:"multipart,omitempty"`
+	PreserveMultipartType bool            `json:"preserve_multipart_type,omitempty"`
+	Zod                   *ZodFieldConfig `json:"zod,omitempty"`
+}
+
+type ZodFieldConfig struct {
+	Base              string          `json:"base,omitempty"`
+	Nullable          bool            `json:"nullable,omitempty"`
+	AcceptEmptyString bool            `json:"accept_empty_string,omitempty"`
+	Refinements       []ZodRefinement `json:"refinements,omitempty"`
+}
+
+type ZodRefinement struct {
+	Kind    string `json:"kind"`
+	Value   string `json:"value,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+type APISurfaceType struct {
+	Name   string          `json:"name"`
+	Fields []FieldContract `json:"fields"`
+}
+
+type APIScalarAlias struct {
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	EmitSchema bool   `json:"emit_schema,omitempty"`
+}
+
+type APIClientConfig struct {
+	Transport              string           `json:"transport,omitempty"`
+	ErrorKinds             []string         `json:"error_kinds,omitempty"`
+	ScalarAliases          []APIScalarAlias `json:"scalar_aliases,omitempty"`
+	EndpointMetadataFields []string         `json:"endpoint_metadata_fields,omitempty"`
+	FieldMetadataFields    []string         `json:"field_metadata_fields,omitempty"`
+	FacadeExportName       string           `json:"facade_export_name,omitempty"`
+	FactoryExportName      string           `json:"factory_export_name,omitempty"`
+	EmptyStructSchema      bool             `json:"empty_struct_schema,omitempty"`
+	PathParameterEncoding  string           `json:"path_parameter_encoding,omitempty"`
 }
 
 // FlowHTTPRoute describes a route declared by an .nflow @pipeline modifier.
@@ -165,6 +205,7 @@ type Diagnostic struct {
 
 type Report struct {
 	APISurfaceManifest bool                        `json:"-"`
+	APIClientConfig    *APIClientConfig            `json:"-"`
 	ScannedFiles       int                         `json:"scanned_files"`
 	Actions            []ActionContract            `json:"actions"`
 	FlowHTTPRoutes     []FlowHTTPRoute             `json:"flow_http_routes,omitempty"`

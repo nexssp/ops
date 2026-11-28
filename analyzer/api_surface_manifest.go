@@ -11,7 +11,9 @@ import (
 // APISurfaceManifest is the complete public HTTP API emitted by `nexssp sdk api`.
 // Its actions use the same wire-contract and metadata fields as analyzer reports.
 type APISurfaceManifest struct {
-	Actions []ActionContract `json:"actions"`
+	Actions []ActionContract      `json:"actions"`
+	Types   []core.APISurfaceType `json:"types,omitempty"`
+	Client  *core.APIClientConfig `json:"client,omitempty"`
 }
 
 // ApplyAPISurfaceManifest replaces the scanned route set with an explicit public
@@ -23,6 +25,12 @@ func ApplyAPISurfaceManifest(report *Report, manifest APISurfaceManifest) error 
 	}
 	if len(manifest.Actions) == 0 {
 		return fmt.Errorf("apply API surface manifest: no actions were provided")
+	}
+	if err := validateAPIClientConfig(manifest.Client); err != nil {
+		return err
+	}
+	if err := validateAPISurfaceTypes(manifest.Types); err != nil {
+		return err
 	}
 
 	actions := append([]ActionContract(nil), manifest.Actions...)
@@ -44,6 +52,24 @@ func ApplyAPISurfaceManifest(report *Report, manifest APISurfaceManifest) error 
 		}
 		if action.FlowSchemaDriven {
 			return fmt.Errorf("apply API surface manifest: action %q must declare resolved request/response types instead of Flow schema names", action.Name)
+		}
+		if action.ValidateMultipartRequest && !action.Multipart {
+			return fmt.Errorf("apply API surface manifest: action %q enables multipart validation without declaring a multipart request", action.Name)
+		}
+		for _, fields := range [][]FieldContract{action.ReqFields, action.ResFields} {
+			seenFields := make(map[string]struct{}, len(fields))
+			for _, field := range fields {
+				if !validSDKMethodIdentifier(field.Key) || !validAPISurfaceTypeExpression(field.Type) {
+					return fmt.Errorf("apply API surface manifest: action %q has invalid field contract %q of type %q", action.Name, field.Key, field.Type)
+				}
+				if _, exists := seenFields[field.Key]; exists {
+					return fmt.Errorf("apply API surface manifest: action %q declares field %q more than once", action.Name, field.Key)
+				}
+				seenFields[field.Key] = struct{}{}
+				if err := validateZodFieldConfig(action.Name, field); err != nil {
+					return err
+				}
+			}
 		}
 
 		action.Scope = "public"
@@ -82,6 +108,8 @@ func ApplyAPISurfaceManifest(report *Report, manifest APISurfaceManifest) error 
 
 	working := *report
 	working.Structs = flowSchemaStructs(report, flowSchemaUsage(report))
+	mergeAPISurfaceTypes(working.Structs, manifest.Types)
+	working.APIClientConfig = manifest.Client
 	working.Actions = actions
 	selectedActions := make(map[string]struct{}, len(actions))
 	for _, action := range actions {

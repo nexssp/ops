@@ -89,7 +89,39 @@ func rulesToTag(rules []validatorRule) string {
 
 func mapFieldToZod(f FieldContract, tsStructs, raw map[string]StructDefinition, colliding map[string]bool) (string, []string) {
 	expr, unknown := buildFieldZod(f, tsStructs, raw, colliding)
-	if f.Nullable {
+	if f.Zod != nil {
+		if f.Zod.AcceptEmptyString {
+			expr += ".or(z.literal(''))"
+		}
+		for _, refinement := range f.Zod.Refinements {
+			value := strconv.Quote(refinement.Value)
+			messageOpt := ""
+			if refinement.Message != "" {
+				messageOpt = ", { message: " + strconv.Quote(refinement.Message) + " }"
+			}
+			switch refinement.Kind {
+			case "min", "max":
+				_, err := strconv.ParseFloat(refinement.Value, 64)
+				if err != nil {
+					unknown = append(unknown, refinement.Kind)
+					continue
+				}
+				op := ">="
+				if refinement.Kind == "max" {
+					op = "<="
+				}
+				expr += fmt.Sprintf(".refine(v => typeof v === 'number' ? v %s %s : v.length %s %s%s)", op, refinement.Value, op, refinement.Value, messageOpt)
+			case "email":
+				expr += ".email(" + strings.TrimPrefix(strings.TrimSuffix(messageOpt, ")"), ", ") + ")"
+			case "regex":
+				expr += fmt.Sprintf(".regex(new RegExp(%s)%s)", value, messageOpt)
+			default:
+				unknown = append(unknown, refinement.Kind)
+			}
+		}
+	}
+
+	if f.Nullable || (f.Zod != nil && f.Zod.Nullable) {
 		expr += ".nullable()"
 	}
 	if !f.Required {
@@ -173,6 +205,15 @@ func buildScalarZod(f FieldContract, tsStructs, raw map[string]StructDefinition,
 	}
 
 	base := scalarZodBase(f.Type, tsStructs, raw, colliding)
+	if f.Zod != nil && f.Zod.Base != "" {
+		switch f.Zod.Base {
+		case "number-or-string":
+			base = "z.union([z.number(), z.string()])"
+		case "iso-datetime":
+			base = "z.string().datetime()"
+		default: // Unknown custom bases are deliberately not treated as source code.
+		}
+	}
 
 	var unknown []string
 	hasExplicitLen := false
@@ -432,4 +473,12 @@ func buildArrayZod(elemType string, f FieldContract, tsStructs, raw map[string]S
 		}
 	}
 	return arr, unknown
+}
+
+func isNumericLiteral(s string) bool {
+	if s == "" {
+		return false
+	}
+	_, err := strconv.ParseFloat(s, 64)
+	return err == nil
 }

@@ -21,12 +21,12 @@ func computeReachableStructs(report *Report, tsStructs map[string]StructDefiniti
 		}
 	}
 
-	if includeExposed {
+	if includeExposed || report.APISurfaceManifest {
 		for _, sDef := range report.Structs {
 			if sDef.IsIgnored {
 				continue
 			}
-			if sDef.IsExposed {
+			if sDef.IsExposed && (includeExposed || sDef.SourceFile == "api-surface.manifest.json") {
 				queue = append(queue, sDef.Qualified)
 			}
 		}

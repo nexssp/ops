@@ -91,6 +91,9 @@ func hasExplicitEmptyContract(action ActionContract, request bool, structs map[s
 }
 
 func containsUnsupportedPublicType(tsType string) bool {
+	if strings.TrimSpace(tsType) == "Record<string, unknown>" {
+		return false
+	}
 	for _, token := range strings.FieldsFunc(tsType, func(r rune) bool {
 		return !(r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
 	}) {

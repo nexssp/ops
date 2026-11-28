@@ -97,3 +97,20 @@ func TestGenerateEndpointsFileEmitsInspectorMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateTypesFileEmitsSafeManifestZodContracts(t *testing.T) {
+	fields := []FieldContract{
+		{Key: "amount", Type: "number | string", Required: true, Zod: &ZodFieldConfig{Base: "number-or-string", Refinements: []ZodRefinement{{Kind: "min", Value: "1", Message: "minimum \"one\""}}}},
+		{Key: "date", Type: "IsoDateTimeString", Required: true, Zod: &ZodFieldConfig{Base: "iso-datetime"}},
+		{Key: "email", Type: "string", Nullable: true, Required: false, Zod: &ZodFieldConfig{AcceptEmptyString: true, Refinements: []ZodRefinement{{Kind: "email", Message: "valid email"}}}},
+		{Key: "pattern", Type: "string", Required: true, Zod: &ZodFieldConfig{Refinements: []ZodRefinement{{Kind: "regex", Value: `a'); evil()//`, Message: `bad "value"`}}}},
+	}
+	reachable := map[string]StructDefinition{"x.Payload": {Name: "Payload", Package: "x", Qualified: "x.Payload", Fields: fields}}
+	report := &Report{APIClientConfig: &APIClientConfig{ScalarAliases: []APIScalarAlias{{Name: "IsoDateTimeString", Type: "string"}}}}
+	got := string(generateTypesFile(report, reachable, reachable, map[string]bool{}))
+	for _, want := range []string{"export type IsoDateTimeString = string;", "z.union([z.number(), z.string()])", "z.string().datetime()", ".or(z.literal(''))", ".nullable().optional()", "new RegExp(\"a'); evil()//\")"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated types missing %q:\n%s", want, got)
+		}
+	}
+}
